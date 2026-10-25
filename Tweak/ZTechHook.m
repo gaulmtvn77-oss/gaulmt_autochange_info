@@ -1369,10 +1369,20 @@ static void ZTechSanitizeHeadersDict(NSMutableDictionary *headers) {
 }
 
 static void swizzled_setValueForHTTPHeaderField(id self, SEL _cmd, NSString *value, NSString *field) {
-    if (value && [value isKindOfClass:[NSString class]] && field && [field isKindOfClass:[NSString class]]) {
+    if (field && [field isKindOfClass:[NSString class]]) {
         NSString *lowerField = [field lowercaseString];
-        if ([lowerField containsString:@"user-agent"] || [lowerField containsString:@"device"]) {
-            value = ZTechSanitizeHeaderString(value);
+        // Anti-leak: Never allow proxy or hop-by-hop headers to leak into application-level HTTPS requests
+        if ([lowerField isEqualToString:@"proxy-authorization"] ||
+            [lowerField isEqualToString:@"proxy-authenticate"] ||
+            [lowerField isEqualToString:@"x-forwarded-for"] ||
+            [lowerField isEqualToString:@"x-forwarded-proto"] ||
+            [lowerField isEqualToString:@"x-real-ip"]) {
+            return;
+        }
+        if (value && [value isKindOfClass:[NSString class]]) {
+            if ([lowerField containsString:@"user-agent"] || [lowerField containsString:@"device"]) {
+                value = ZTechSanitizeHeaderString(value);
+            }
         }
     }
     if (gZTechOrigSetHdrSel && [self respondsToSelector:gZTechOrigSetHdrSel]) {
@@ -1390,15 +1400,14 @@ static NSURLSessionConfiguration *swizzled_defaultSessionConfig(id self, SEL _cm
             if (cfg.HTTPAdditionalHeaders) {
                 NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
                 ZTechSanitizeHeadersDict(headers);
+                [headers removeObjectForKey:@"Proxy-Authorization"];
+                [headers removeObjectForKey:@"proxy-authorization"];
+                [headers removeObjectForKey:@"Proxy-Authenticate"];
+                [headers removeObjectForKey:@"X-Forwarded-For"];
                 cfg.HTTPAdditionalHeaders = headers;
             }
             if (gProxyEnabled && gCachedProxyDict) {
                 cfg.connectionProxyDictionary = gCachedProxyDict;
-                if (gCachedProxyAuthHeader.length > 0) {
-                    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
-                    headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
-                    cfg.HTTPAdditionalHeaders = headers;
-                }
             }
         } @catch (NSException *e) {}
     }
@@ -1415,19 +1424,96 @@ static NSURLSessionConfiguration *swizzled_ephemeralSessionConfig(id self, SEL _
             if (cfg.HTTPAdditionalHeaders) {
                 NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
                 ZTechSanitizeHeadersDict(headers);
+                [headers removeObjectForKey:@"Proxy-Authorization"];
+                [headers removeObjectForKey:@"proxy-authorization"];
+                [headers removeObjectForKey:@"Proxy-Authenticate"];
+                [headers removeObjectForKey:@"X-Forwarded-For"];
                 cfg.HTTPAdditionalHeaders = headers;
             }
             if (gProxyEnabled && gCachedProxyDict) {
                 cfg.connectionProxyDictionary = gCachedProxyDict;
-                if (gCachedProxyAuthHeader.length > 0) {
-                    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
-                    headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
-                    cfg.HTTPAdditionalHeaders = headers;
-                }
             }
         } @catch (NSException *e) {}
     }
     return cfg;
+}
+
+static SEL gZTechOrigSessionWithCfgSel = NULL;
+static NSURLSession *swizzled_sessionWithConfig(id self, SEL _cmd, NSURLSessionConfiguration *cfg, id delegate, NSOperationQueue *queue) {
+    if (gProxyEnabled && gCachedProxyDict && cfg) {
+        cfg.connectionProxyDictionary = gCachedProxyDict;
+        if (cfg.HTTPAdditionalHeaders) {
+            NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
+            [headers removeObjectForKey:@"Proxy-Authorization"];
+            [headers removeObjectForKey:@"proxy-authorization"];
+            cfg.HTTPAdditionalHeaders = headers;
+        }
+    }
+    if (gZTechOrigSessionWithCfgSel && [self respondsToSelector:gZTechOrigSessionWithCfgSel]) {
+        return ((NSURLSession *(*)(id, SEL, id, id, id))objc_msgSend)(self, gZTechOrigSessionWithCfgSel, cfg, delegate, queue);
+    }
+    return nil;
+}
+
+#pragma mark - Stealth Jailbreak Cloaking & Anti-Detection
+
+static int (*orig_access)(const char *path, int mode) = NULL;
+static int hooked_access(const char *path, int mode) {
+    if (path != NULL) {
+        if (strstr(path, "Cydia") || strstr(path, "Sileo") || strstr(path, "Zebra") ||
+            strstr(path, "/var/jb") || strstr(path, "MobileSubstrate") || strstr(path, "ellekit") ||
+            strstr(path, "substitute") || strcmp(path, "/bin/bash") == 0 || strcmp(path, "/bin/sh") == 0 ||
+            strcmp(path, "/usr/sbin/sshd") == 0 || strcmp(path, "/usr/bin/ssh") == 0 || strstr(path, "/etc/apt")) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+    return orig_access ? orig_access(path, mode) : -1;
+}
+
+static int (*orig_stat)(const char *path, struct stat *buf) = NULL;
+static int hooked_stat(const char *path, struct stat *buf) {
+    if (path != NULL) {
+        if (strstr(path, "Cydia") || strstr(path, "Sileo") || strstr(path, "Zebra") ||
+            strstr(path, "/var/jb") || strstr(path, "MobileSubstrate") || strstr(path, "ellekit") ||
+            strstr(path, "substitute") || strcmp(path, "/bin/bash") == 0 || strcmp(path, "/bin/sh") == 0 ||
+            strcmp(path, "/usr/sbin/sshd") == 0 || strcmp(path, "/usr/bin/ssh") == 0 || strstr(path, "/etc/apt")) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+    return orig_stat ? orig_stat(path, buf) : -1;
+}
+
+static int (*orig_lstat)(const char *path, struct stat *buf) = NULL;
+static int hooked_lstat(const char *path, struct stat *buf) {
+    if (path != NULL) {
+        if (strstr(path, "Cydia") || strstr(path, "Sileo") || strstr(path, "Zebra") ||
+            strstr(path, "/var/jb") || strstr(path, "MobileSubstrate") || strstr(path, "ellekit") ||
+            strstr(path, "substitute") || strcmp(path, "/bin/bash") == 0 || strcmp(path, "/bin/sh") == 0 ||
+            strcmp(path, "/usr/sbin/sshd") == 0 || strcmp(path, "/usr/bin/ssh") == 0 || strstr(path, "/etc/apt")) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+    return orig_lstat ? orig_lstat(path, buf) : -1;
+}
+
+static pid_t (*orig_fork)(void) = NULL;
+static pid_t hooked_fork(void) {
+    errno = EPERM;
+    return -1;
+}
+
+static const char *(*orig_dyld_get_image_name)(uint32_t image_index) = NULL;
+static const char *hooked_dyld_get_image_name(uint32_t image_index) {
+    const char *name = orig_dyld_get_image_name ? orig_dyld_get_image_name(image_index) : NULL;
+    if (name != NULL) {
+        if (strstr(name, "ZTech") || strstr(name, "ellekit") || strstr(name, "substrate") || strstr(name, "substitute")) {
+            return "/System/Library/Frameworks/Foundation.framework/Foundation";
+        }
+    }
+    return name;
 }
 
 #pragma mark - CFNetwork Low-Level Proxy Enforcement & Leak Isolation
@@ -2470,6 +2556,17 @@ static void ZTechHookInit(void) {
                 }
             }
 
+            Class sesCls = objc_getClass("NSURLSession");
+            if (sesCls) {
+                Class sesMeta = object_getClass((id)sesCls);
+                gZTechOrigSessionWithCfgSel = sel_registerName("_ztech_orig_sessionWithConfiguration:delegate:delegateQueue:");
+                Method mSesWithCfg = class_getClassMethod(sesCls, @selector(sessionWithConfiguration:delegate:delegateQueue:));
+                if (mSesWithCfg && class_addMethod(sesMeta, gZTechOrigSessionWithCfgSel, (IMP)swizzled_sessionWithConfig, method_getTypeEncoding(mSesWithCfg))) {
+                    Method mSwizSes = class_getClassMethod(sesCls, gZTechOrigSessionWithCfgSel);
+                    if (mSwizSes) method_exchangeImplementations(mSesWithCfg, mSwizSes);
+                }
+            }
+
             Class reqCls = objc_getClass("NSMutableURLRequest");
             if (reqCls) {
                 Method mSetHdr = class_getInstanceMethod(reqCls, @selector(setValue:forHTTPHeaderField:));
@@ -2651,6 +2748,22 @@ static void ZTechHookInit(void) {
                 if (raw_SecItemCopyMatching) {
                     pMSHook(raw_SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
                 }
+
+                // Anti-detection: Hide jailbreak paths, dyld tweaks & fork from Zalo
+                void *raw_access = dlsym(RTLD_DEFAULT, "access");
+                if (raw_access) pMSHook(raw_access, (void *)hooked_access, (void **)&orig_access);
+
+                void *raw_stat = dlsym(RTLD_DEFAULT, "stat");
+                if (raw_stat) pMSHook(raw_stat, (void *)hooked_stat, (void **)&orig_stat);
+
+                void *raw_lstat = dlsym(RTLD_DEFAULT, "lstat");
+                if (raw_lstat) pMSHook(raw_lstat, (void *)hooked_lstat, (void **)&orig_lstat);
+
+                void *raw_fork = dlsym(RTLD_DEFAULT, "fork");
+                if (raw_fork) pMSHook(raw_fork, (void *)hooked_fork, (void **)&orig_fork);
+
+                void *raw_dyld_img = dlsym(RTLD_DEFAULT, "_dyld_get_image_name");
+                if (raw_dyld_img) pMSHook(raw_dyld_img, (void *)hooked_dyld_get_image_name, (void **)&orig_dyld_get_image_name);
             }
         }
 
