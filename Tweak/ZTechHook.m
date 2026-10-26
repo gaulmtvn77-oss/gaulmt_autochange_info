@@ -15,6 +15,9 @@
 #import <net/if.h>
 #import <netinet/in.h>
 #import <unistd.h>
+#import <fcntl.h>
+#import <sys/mount.h>
+#import <stdarg.h>
 #import <dlfcn.h>
 #import <mach/mach.h>
 #import <mach/vm_map.h>
@@ -1457,46 +1460,155 @@ static NSURLSession *swizzled_sessionWithConfig(id self, SEL _cmd, NSURLSessionC
 
 #pragma mark - Stealth Jailbreak Cloaking & Anti-Detection
 
+static int ZTechIsJailbreakPath(const char *path) {
+    if (!path) return 0;
+    if (strstr(path, "/var/jb") ||
+        strstr(path, "Cydia") || strstr(path, "cydia") ||
+        strstr(path, "Sileo") || strstr(path, "sileo") ||
+        strstr(path, "Zebra") || strstr(path, "zebra") ||
+        strstr(path, "MobileSubstrate") || strstr(path, "mobilesubstrate") ||
+        strstr(path, "ellekit") || strstr(path, "substitute") ||
+        strstr(path, "Substrate") ||
+        strstr(path, "/private/preboot") ||
+        strstr(path, "/bin/bash") || strstr(path, "/bin/sh") || strstr(path, "/bin/zsh") ||
+        strstr(path, "/usr/sbin/sshd") || strstr(path, "/usr/bin/ssh") ||
+        strstr(path, "/etc/apt") || strstr(path, "/var/lib/apt") || strstr(path, "/var/lib/dpkg") ||
+        strstr(path, "/var/log/apt") || strstr(path, "/var/log/dpkg") ||
+        strstr(path, "/var/binpack") || strstr(path, "/var/dropbear") ||
+        strstr(path, "/Library/PreferenceBundles") || strstr(path, "/Library/PreferenceLoader") ||
+        strstr(path, "filza") || strstr(path, "Filza") ||
+        strstr(path, "santander") || strstr(path, "undecimus") ||
+        strstr(path, "frida") || strstr(path, "Frida")) {
+        return 1;
+    }
+    return 0;
+}
+
 static int (*orig_access)(const char *path, int mode) = NULL;
 static int hooked_access(const char *path, int mode) {
-    if (path != NULL) {
-        if (strstr(path, "Cydia") || strstr(path, "Sileo") || strstr(path, "Zebra") ||
-            strstr(path, "/var/jb") || strstr(path, "MobileSubstrate") || strstr(path, "ellekit") ||
-            strstr(path, "substitute") || strcmp(path, "/bin/bash") == 0 || strcmp(path, "/bin/sh") == 0 ||
-            strcmp(path, "/usr/sbin/sshd") == 0 || strcmp(path, "/usr/bin/ssh") == 0 || strstr(path, "/etc/apt")) {
-            errno = ENOENT;
-            return -1;
-        }
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
     }
     return orig_access ? orig_access(path, mode) : -1;
 }
 
 static int (*orig_stat)(const char *path, struct stat *buf) = NULL;
 static int hooked_stat(const char *path, struct stat *buf) {
-    if (path != NULL) {
-        if (strstr(path, "Cydia") || strstr(path, "Sileo") || strstr(path, "Zebra") ||
-            strstr(path, "/var/jb") || strstr(path, "MobileSubstrate") || strstr(path, "ellekit") ||
-            strstr(path, "substitute") || strcmp(path, "/bin/bash") == 0 || strcmp(path, "/bin/sh") == 0 ||
-            strcmp(path, "/usr/sbin/sshd") == 0 || strcmp(path, "/usr/bin/ssh") == 0 || strstr(path, "/etc/apt")) {
-            errno = ENOENT;
-            return -1;
-        }
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
     }
     return orig_stat ? orig_stat(path, buf) : -1;
 }
 
 static int (*orig_lstat)(const char *path, struct stat *buf) = NULL;
 static int hooked_lstat(const char *path, struct stat *buf) {
-    if (path != NULL) {
-        if (strstr(path, "Cydia") || strstr(path, "Sileo") || strstr(path, "Zebra") ||
-            strstr(path, "/var/jb") || strstr(path, "MobileSubstrate") || strstr(path, "ellekit") ||
-            strstr(path, "substitute") || strcmp(path, "/bin/bash") == 0 || strcmp(path, "/bin/sh") == 0 ||
-            strcmp(path, "/usr/sbin/sshd") == 0 || strcmp(path, "/usr/bin/ssh") == 0 || strstr(path, "/etc/apt")) {
-            errno = ENOENT;
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_lstat ? orig_lstat(path, buf) : -1;
+}
+
+static int (*orig_open)(const char *path, int oflag, ...) = NULL;
+static int hooked_open(const char *path, int oflag, ...) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    // Sandbox write probe check: writing outside sandbox containers to test jailbreak
+    if (path && (oflag & (O_WRONLY | O_CREAT))) {
+        if (strncmp(path, "/private/var/mobile/Containers", 30) != 0 &&
+            strncmp(path, "/var/mobile/Containers", 22) != 0 &&
+            (strncmp(path, "/private/", 9) == 0 || strncmp(path, "/System/", 8) == 0 ||
+             strncmp(path, "/Library/", 9) == 0 || strncmp(path, "/var/root", 9) == 0)) {
+            errno = EPERM;
             return -1;
         }
     }
-    return orig_lstat ? orig_lstat(path, buf) : -1;
+    if (oflag & O_CREAT) {
+        va_list args;
+        va_start(args, oflag);
+        mode_t mode = (mode_t)va_arg(args, int);
+        va_end(args);
+        return orig_open ? orig_open(path, oflag, mode) : -1;
+    }
+    return orig_open ? orig_open(path, oflag) : -1;
+}
+
+static FILE *(*orig_fopen)(const char *path, const char *mode) = NULL;
+static FILE *hooked_fopen(const char *path, const char *mode) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return NULL;
+    }
+    if (path && mode && (strchr(mode, 'w') || strchr(mode, 'a') || strchr(mode, '+'))) {
+        if (strncmp(path, "/private/var/mobile/Containers", 30) != 0 &&
+            strncmp(path, "/var/mobile/Containers", 22) != 0 &&
+            (strncmp(path, "/private/", 9) == 0 || strncmp(path, "/System/", 8) == 0 ||
+             strncmp(path, "/Library/", 9) == 0 || strncmp(path, "/var/root", 9) == 0)) {
+            errno = EPERM;
+            return NULL;
+        }
+    }
+    return orig_fopen ? orig_fopen(path, mode) : NULL;
+}
+
+static int (*orig_statfs)(const char *path, struct statfs *buf) = NULL;
+static int hooked_statfs(const char *path, struct statfs *buf) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_statfs ? orig_statfs(path, buf) : -1;
+}
+
+static char *(*orig_getenv)(const char *name) = NULL;
+static char *hooked_getenv(const char *name) {
+    if (name != NULL) {
+        if (strcmp(name, "DYLD_INSERT_LIBRARIES") == 0 ||
+            strcmp(name, "DYLD_LIBRARY_PATH") == 0 ||
+            strcmp(name, "_MSSafeMode") == 0 ||
+            strcmp(name, "SHELL") == 0) {
+            return NULL;
+        }
+    }
+    return orig_getenv ? orig_getenv(name) : NULL;
+}
+
+static void *(*orig_dlsym)(void *handle, const char *symbol) = NULL;
+static void *hooked_dlsym(void *handle, const char *symbol) {
+    if (symbol != NULL) {
+        if (strcmp(symbol, "MSHookFunction") == 0 ||
+            strcmp(symbol, "MSHookMessageEx") == 0 ||
+            strcmp(symbol, "MSFindSymbol") == 0 ||
+            strcmp(symbol, "MSGetImageByName") == 0 ||
+            strcmp(symbol, "cydia_init") == 0 ||
+            strcmp(symbol, "substitute_hook_functions") == 0 ||
+            strcmp(symbol, "ellekit_hook") == 0) {
+            return NULL;
+        }
+    }
+    return orig_dlsym ? orig_dlsym(handle, symbol) : NULL;
+}
+
+static int (*orig_dladdr)(const void *addr, Dl_info *info) = NULL;
+static int hooked_dladdr(const void *addr, Dl_info *info) {
+    int ret = orig_dladdr ? orig_dladdr(addr, info) : 0;
+    if (ret != 0 && info && info->dli_fname) {
+        if (strstr(info->dli_fname, "ZTech") ||
+            strstr(info->dli_fname, "ellekit") ||
+            strstr(info->dli_fname, "substrate") ||
+            strstr(info->dli_fname, "substitute") ||
+            strstr(info->dli_fname, "/var/jb")) {
+            info->dli_fname = "/usr/lib/libSystem.B.dylib";
+            info->dli_fbase = (void *)0x180000000;
+            info->dli_sname = "printf";
+            info->dli_saddr = (void *)0x180001000;
+        }
+    }
+    return ret;
 }
 
 static pid_t (*orig_fork)(void) = NULL;
@@ -1505,15 +1617,56 @@ static pid_t hooked_fork(void) {
     return -1;
 }
 
+static int (*orig_system)(const char *command) = NULL;
+static int hooked_system(const char *command) {
+    errno = EPERM;
+    return -1;
+}
+
+static FILE *(*orig_popen)(const char *command, const char *type) = NULL;
+static FILE *hooked_popen(const char *command, const char *type) {
+    errno = EPERM;
+    return NULL;
+}
+
+static int (*orig_ptrace)(int request, pid_t pid, caddr_t addr, int data) = NULL;
+static int hooked_ptrace(int request, pid_t pid, caddr_t addr, int data) {
+    if (request == 31 /* PT_DENY_ATTACH */) {
+        return 0; // Silently neutralize PT_DENY_ATTACH
+    }
+    return orig_ptrace ? orig_ptrace(request, pid, addr, data) : 0;
+}
+
 static const char *(*orig_dyld_get_image_name)(uint32_t image_index) = NULL;
 static const char *hooked_dyld_get_image_name(uint32_t image_index) {
     const char *name = orig_dyld_get_image_name ? orig_dyld_get_image_name(image_index) : NULL;
     if (name != NULL) {
-        if (strstr(name, "ZTech") || strstr(name, "ellekit") || strstr(name, "substrate") || strstr(name, "substitute")) {
+        if (strstr(name, "ZTech") || strstr(name, "ellekit") || strstr(name, "substrate") || strstr(name, "substitute") || strstr(name, "/var/jb")) {
             return "/System/Library/Frameworks/Foundation.framework/Foundation";
         }
     }
     return name;
+}
+
+static BOOL (*orig_fm_fileExistsAtPath)(id, SEL, NSString *) = NULL;
+static BOOL swizzled_fm_fileExistsAtPath(id self, SEL _cmd, NSString *path) {
+    if (path && [path isKindOfClass:[NSString class]]) {
+        if (ZTechIsJailbreakPath([path UTF8String])) {
+            return NO;
+        }
+    }
+    return orig_fm_fileExistsAtPath ? orig_fm_fileExistsAtPath(self, _cmd, path) : NO;
+}
+
+static BOOL (*orig_fm_fileExistsAtPath_isDir)(id, SEL, NSString *, BOOL *) = NULL;
+static BOOL swizzled_fm_fileExistsAtPath_isDir(id self, SEL _cmd, NSString *path, BOOL *isDir) {
+    if (path && [path isKindOfClass:[NSString class]]) {
+        if (ZTechIsJailbreakPath([path UTF8String])) {
+            if (isDir) *isDir = NO;
+            return NO;
+        }
+    }
+    return orig_fm_fileExistsAtPath_isDir ? orig_fm_fileExistsAtPath_isDir(self, _cmd, path, isDir) : NO;
 }
 
 #pragma mark - CFNetwork Low-Level Proxy Enforcement & Leak Isolation
@@ -1730,7 +1883,10 @@ static BOOL swizzled_canOpenURL(id self, SEL _cmd, NSURL *url) {
             [scheme isEqualToString:@"zbra"] ||
             [scheme isEqualToString:@"filza"] ||
             [scheme isEqualToString:@"undecimus"] ||
-            [scheme isEqualToString:@"santander"]) {
+            [scheme isEqualToString:@"santander"] ||
+            [scheme isEqualToString:@"activator"] ||
+            [scheme isEqualToString:@"installer"] ||
+            [scheme isEqualToString:@"apt"]) {
             return NO;
         }
     }
@@ -2585,6 +2741,21 @@ static void ZTechHookInit(void) {
                 }
             }
 
+            // Swizzle NSFileManager fileExistsAtPath: to hide jailbreak files
+            Class fmCls = objc_getClass("NSFileManager");
+            if (fmCls) {
+                Method mExists = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:));
+                if (mExists) {
+                    orig_fm_fileExistsAtPath = (BOOL (*)(id, SEL, NSString *))method_getImplementation(mExists);
+                    method_setImplementation(mExists, (IMP)swizzled_fm_fileExistsAtPath);
+                }
+                Method mExistsDir = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:isDirectory:));
+                if (mExistsDir) {
+                    orig_fm_fileExistsAtPath_isDir = (BOOL (*)(id, SEL, NSString *, BOOL *))method_getImplementation(mExistsDir);
+                    method_setImplementation(mExistsDir, (IMP)swizzled_fm_fileExistsAtPath_isDir);
+                }
+            }
+
             // Swizzle UIApplication canOpenURL: to hide jailbreak URL schemes
             Class appCls = objc_getClass("UIApplication");
             if (appCls) {
@@ -2755,7 +2926,7 @@ static void ZTechHookInit(void) {
                     pMSHook(raw_SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
                 }
 
-                // Anti-detection: Hide jailbreak paths, dyld tweaks & fork from Zalo
+                // Anti-detection: Full Kernel-Grade Stealth Jailbreak Shield
                 void *raw_access = dlsym(RTLD_DEFAULT, "access");
                 if (raw_access) pMSHook(raw_access, (void *)hooked_access, (void **)&orig_access);
 
@@ -2765,8 +2936,35 @@ static void ZTechHookInit(void) {
                 void *raw_lstat = dlsym(RTLD_DEFAULT, "lstat");
                 if (raw_lstat) pMSHook(raw_lstat, (void *)hooked_lstat, (void **)&orig_lstat);
 
+                void *raw_open = dlsym(RTLD_DEFAULT, "open");
+                if (raw_open) pMSHook(raw_open, (void *)hooked_open, (void **)&orig_open);
+
+                void *raw_fopen = dlsym(RTLD_DEFAULT, "fopen");
+                if (raw_fopen) pMSHook(raw_fopen, (void *)hooked_fopen, (void **)&orig_fopen);
+
+                void *raw_statfs = dlsym(RTLD_DEFAULT, "statfs");
+                if (raw_statfs) pMSHook(raw_statfs, (void *)hooked_statfs, (void **)&orig_statfs);
+
+                void *raw_getenv = dlsym(RTLD_DEFAULT, "getenv");
+                if (raw_getenv) pMSHook(raw_getenv, (void *)hooked_getenv, (void **)&orig_getenv);
+
+                void *raw_dlsym = dlsym(RTLD_DEFAULT, "dlsym");
+                if (raw_dlsym) pMSHook(raw_dlsym, (void *)hooked_dlsym, (void **)&orig_dlsym);
+
+                void *raw_dladdr = dlsym(RTLD_DEFAULT, "dladdr");
+                if (raw_dladdr) pMSHook(raw_dladdr, (void *)hooked_dladdr, (void **)&orig_dladdr);
+
                 void *raw_fork = dlsym(RTLD_DEFAULT, "fork");
                 if (raw_fork) pMSHook(raw_fork, (void *)hooked_fork, (void **)&orig_fork);
+
+                void *raw_system = dlsym(RTLD_DEFAULT, "system");
+                if (raw_system) pMSHook(raw_system, (void *)hooked_system, (void **)&orig_system);
+
+                void *raw_popen = dlsym(RTLD_DEFAULT, "popen");
+                if (raw_popen) pMSHook(raw_popen, (void *)hooked_popen, (void **)&orig_popen);
+
+                void *raw_ptrace = dlsym(RTLD_DEFAULT, "ptrace");
+                if (raw_ptrace) pMSHook(raw_ptrace, (void *)hooked_ptrace, (void **)&orig_ptrace);
 
                 void *raw_dyld_img = dlsym(RTLD_DEFAULT, "_dyld_get_image_name");
                 if (raw_dyld_img) pMSHook(raw_dyld_img, (void *)hooked_dyld_get_image_name, (void **)&orig_dyld_get_image_name);
