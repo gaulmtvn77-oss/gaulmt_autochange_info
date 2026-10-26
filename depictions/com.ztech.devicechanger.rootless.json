@@ -10,11 +10,11 @@
         {
           "class": "DepictionSubheaderView",
           "useBoldText": true,
-          "title": "quang lam marketing v5.8.6 - Tự Động Xác Thực Proxy, Xoá Sạch Tàn Dư Keychain & Darwin 24"
+          "title": "quang lam marketing v5.8.11 - Cấu Trúc Kháng Crash & Ẩn Jailbreak Chuẩn Xác"
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "Bản phát hành đặc biệt **quang lam marketing v5.8.10**:\n\n- **Lá Chắn Tàng Hình Jailbreak Tận Gốc (Deep Anti-Jailbreak Cloaking)**:\n  + Hook chặn `dlopen()`: Không cho phép Zalo nạp bất kỳ dylib jailbreak nào (`/var/jb`, `ellekit`, `substrate`).\n  + Hook chặn `readlink()` và `realpath()`: Triệt tiêu việc phân giải đường dẫn symlink `/var/jb` sang `/private/preboot`.\n  + Tẩy sạch bộ nhớ môi trường `_NSGetEnviron()`: Xoá bỏ hoàn toàn biến `DYLD_INSERT_LIBRARIES` khỏi bộ nhớ RAM, chống quét trực tiếp con trỏ `environ`.\n  + Swizzle `contentsOfDirectoryAtPath:`: Lọc sạch toàn bộ ứng dụng bẻ khoá khỏi danh sách thư mục `/Applications`.\n  + Swizzle `writeToFile:`: Đóng băng các nỗ lực thăm dò ghi file ngoài Sandbox (`/private/`, `/System/`)."
+          "markdown": "Bản phát hành đặc biệt **quang lam marketing v5.8.11**:\n\n- **Ổn Định Tuyệt Đối & Triệt Tiêu Lỗi Crash (Rock-Solid Anti-Crash Architecture)**:\n  + Loại bỏ hoàn toàn các hook POSIX thô bạo (`open`, `fopen`, `statfs`) gây lỗi cấp phép ghi bộ nhớ đệm (EPERM) cho SQLite/WCDB của Zalo.\n  + Khử triệt để hook `dladdr` và `dlsym`/`dlopen` tránh xung đột khóa mutex của dyld4 trên iOS 15 rootless.\n  + Đưa toàn bộ các bộ lọc `NSFileManager` và `canOpenURL:` vào riêng biệt tiến trình Zalo, bảo vệ 100% độ ổn định của SpringBoard và hệ thống.\n- **Lá Chắn Tàng Hình Jailbreak Tinh Gọn (Safe Jailbreak Cloaking)**:\n  + Chặn quét đường dẫn Jailbreak qua `access`, `stat`, `lstat` và `[NSFileManager fileExistsAtPath:]`.\n  + Ẩn tên dylib can thiệp qua `_dyld_get_image_name` và vô hiệu hoá lệnh `fork()`.\n- **Đồng bộ phần cứng & Tự động chứng thực Proxy không rò rỉ header**."
         },
         {
           "class": "DepictionTableTextView",
@@ -24,7 +24,7 @@
         {
           "class": "DepictionTableTextView",
           "title": "Phiên bản",
-          "text": "5.8.6"
+          "text": "5.8.11"
         },
         {
           "class": "DepictionTableTextView",

@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: quang lam marketing
-Version: 5.8.10
+Version: 5.8.11
 Architecture: iphoneos-arm
-Description: quang lam marketing v5.8.10 - Deep Ring-0 Anti-Jailbreak Cloaking (dlopen, readlink, realpath, environ scrub)
+Description: quang lam marketing v5.8.11 - Anti-Crash Rock-Solid Kernel Architecture & Safe Jailbreak Cloaking
 Maintainer: quang lam marketing
 Author: quang lam marketing
 Section: Utilities

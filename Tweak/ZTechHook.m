@@ -15,10 +15,6 @@
 #import <net/if.h>
 #import <netinet/in.h>
 #import <unistd.h>
-#import <fcntl.h>
-#import <sys/mount.h>
-#import <stdarg.h>
-extern char ***_NSGetEnviron(void);
 #import <dlfcn.h>
 #import <mach/mach.h>
 #import <mach/vm_map.h>
@@ -1512,189 +1508,10 @@ static int hooked_lstat(const char *path, struct stat *buf) {
     return orig_lstat ? orig_lstat(path, buf) : -1;
 }
 
-static int (*orig_open)(const char *path, int oflag, ...) = NULL;
-static int hooked_open(const char *path, int oflag, ...) {
-    if (ZTechIsJailbreakPath(path)) {
-        errno = ENOENT;
-        return -1;
-    }
-    // Sandbox write probe check: writing outside sandbox containers to test jailbreak
-    if (path && (oflag & (O_WRONLY | O_CREAT))) {
-        if (strncmp(path, "/private/var/mobile/Containers", 30) != 0 &&
-            strncmp(path, "/var/mobile/Containers", 22) != 0 &&
-            (strncmp(path, "/private/", 9) == 0 || strncmp(path, "/System/", 8) == 0 ||
-             strncmp(path, "/Library/", 9) == 0 || strncmp(path, "/var/root", 9) == 0)) {
-            errno = EPERM;
-            return -1;
-        }
-    }
-    if (oflag & O_CREAT) {
-        va_list args;
-        va_start(args, oflag);
-        mode_t mode = (mode_t)va_arg(args, int);
-        va_end(args);
-        return orig_open ? orig_open(path, oflag, mode) : -1;
-    }
-    return orig_open ? orig_open(path, oflag) : -1;
-}
-
-static FILE *(*orig_fopen)(const char *path, const char *mode) = NULL;
-static FILE *hooked_fopen(const char *path, const char *mode) {
-    if (ZTechIsJailbreakPath(path)) {
-        errno = ENOENT;
-        return NULL;
-    }
-    if (path && mode && (strchr(mode, 'w') || strchr(mode, 'a') || strchr(mode, '+'))) {
-        if (strncmp(path, "/private/var/mobile/Containers", 30) != 0 &&
-            strncmp(path, "/var/mobile/Containers", 22) != 0 &&
-            (strncmp(path, "/private/", 9) == 0 || strncmp(path, "/System/", 8) == 0 ||
-             strncmp(path, "/Library/", 9) == 0 || strncmp(path, "/var/root", 9) == 0)) {
-            errno = EPERM;
-            return NULL;
-        }
-    }
-    return orig_fopen ? orig_fopen(path, mode) : NULL;
-}
-
-static int (*orig_statfs)(const char *path, struct statfs *buf) = NULL;
-static int hooked_statfs(const char *path, struct statfs *buf) {
-    if (ZTechIsJailbreakPath(path)) {
-        errno = ENOENT;
-        return -1;
-    }
-    return orig_statfs ? orig_statfs(path, buf) : -1;
-}
-
-static void *(*orig_dlopen)(const char *path, int mode) = NULL;
-static void *hooked_dlopen(const char *path, int mode) {
-    if (ZTechIsJailbreakPath(path)) {
-        return NULL;
-    }
-    return orig_dlopen ? orig_dlopen(path, mode) : NULL;
-}
-
-static ssize_t (*orig_readlink)(const char *path, char *buf, size_t bufsiz) = NULL;
-static ssize_t hooked_readlink(const char *path, char *buf, size_t bufsiz) {
-    if (ZTechIsJailbreakPath(path)) {
-        errno = ENOENT;
-        return -1;
-    }
-    return orig_readlink ? orig_readlink(path, buf, bufsiz) : -1;
-}
-
-static char *(*orig_realpath)(const char *path, char *resolved_path) = NULL;
-static char *hooked_realpath(const char *path, char *resolved_path) {
-    if (ZTechIsJailbreakPath(path)) {
-        errno = ENOENT;
-        return NULL;
-    }
-    return orig_realpath ? orig_realpath(path, resolved_path) : NULL;
-}
-
-static NSArray *(*orig_fm_contentsOfDirectoryAtPath)(id, SEL, NSString *, NSError **) = NULL;
-static NSArray *swizzled_fm_contentsOfDirectoryAtPath(id self, SEL _cmd, NSString *path, NSError **error) {
-    NSArray *items = orig_fm_contentsOfDirectoryAtPath ? orig_fm_contentsOfDirectoryAtPath(self, _cmd, path, error) : nil;
-    if (items && [items isKindOfClass:[NSArray class]] && items.count > 0) {
-        NSMutableArray *cleanItems = [NSMutableArray arrayWithCapacity:items.count];
-        for (NSString *item in items) {
-            if ([item isKindOfClass:[NSString class]]) {
-                if (ZTechIsJailbreakPath([item UTF8String])) continue;
-            }
-            [cleanItems addObject:item];
-        }
-        return [cleanItems copy];
-    }
-    return items;
-}
-
-static BOOL (*orig_str_writeToFile)(id, SEL, NSString *, BOOL, NSStringEncoding, NSError **) = NULL;
-static BOOL swizzled_str_writeToFile(id self, SEL _cmd, NSString *path, BOOL atomically, NSStringEncoding enc, NSError **error) {
-    if (path && [path isKindOfClass:[NSString class]]) {
-        const char *p = [path UTF8String];
-        if (strncmp(p, "/private/var/mobile/Containers", 30) != 0 &&
-            strncmp(p, "/var/mobile/Containers", 22) != 0 &&
-            (strncmp(p, "/private/", 9) == 0 || strncmp(p, "/System/", 8) == 0 ||
-             strncmp(p, "/Library/", 9) == 0 || strncmp(p, "/var/root", 9) == 0)) {
-            if (error) {
-                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteNoPermissionError userInfo:@{NSLocalizedDescriptionKey: @"The file could not be saved."}];
-            }
-            return NO;
-        }
-    }
-    return orig_str_writeToFile ? orig_str_writeToFile(self, _cmd, path, atomically, enc, error) : NO;
-}
-
-static char *(*orig_getenv)(const char *name) = NULL;
-static char *hooked_getenv(const char *name) {
-    if (name != NULL) {
-        if (strcmp(name, "DYLD_INSERT_LIBRARIES") == 0 ||
-            strcmp(name, "DYLD_LIBRARY_PATH") == 0 ||
-            strcmp(name, "_MSSafeMode") == 0 ||
-            strcmp(name, "SHELL") == 0) {
-            return NULL;
-        }
-    }
-    return orig_getenv ? orig_getenv(name) : NULL;
-}
-
-static void *(*orig_dlsym)(void *handle, const char *symbol) = NULL;
-static void *hooked_dlsym(void *handle, const char *symbol) {
-    if (symbol != NULL) {
-        if (strcmp(symbol, "MSHookFunction") == 0 ||
-            strcmp(symbol, "MSHookMessageEx") == 0 ||
-            strcmp(symbol, "MSFindSymbol") == 0 ||
-            strcmp(symbol, "MSGetImageByName") == 0 ||
-            strcmp(symbol, "cydia_init") == 0 ||
-            strcmp(symbol, "substitute_hook_functions") == 0 ||
-            strcmp(symbol, "ellekit_hook") == 0) {
-            return NULL;
-        }
-    }
-    return orig_dlsym ? orig_dlsym(handle, symbol) : NULL;
-}
-
-static int (*orig_dladdr)(const void *addr, Dl_info *info) = NULL;
-static int hooked_dladdr(const void *addr, Dl_info *info) {
-    int ret = orig_dladdr ? orig_dladdr(addr, info) : 0;
-    if (ret != 0 && info && info->dli_fname) {
-        if (strstr(info->dli_fname, "ZTech") ||
-            strstr(info->dli_fname, "ellekit") ||
-            strstr(info->dli_fname, "substrate") ||
-            strstr(info->dli_fname, "substitute") ||
-            strstr(info->dli_fname, "/var/jb")) {
-            info->dli_fname = "/usr/lib/libSystem.B.dylib";
-            info->dli_fbase = (void *)0x180000000;
-            info->dli_sname = "printf";
-            info->dli_saddr = (void *)0x180001000;
-        }
-    }
-    return ret;
-}
-
 static pid_t (*orig_fork)(void) = NULL;
 static pid_t hooked_fork(void) {
     errno = EPERM;
     return -1;
-}
-
-static int (*orig_system)(const char *command) = NULL;
-static int hooked_system(const char *command) {
-    errno = EPERM;
-    return -1;
-}
-
-static FILE *(*orig_popen)(const char *command, const char *type) = NULL;
-static FILE *hooked_popen(const char *command, const char *type) {
-    errno = EPERM;
-    return NULL;
-}
-
-static int (*orig_ptrace)(int request, pid_t pid, caddr_t addr, int data) = NULL;
-static int hooked_ptrace(int request, pid_t pid, caddr_t addr, int data) {
-    if (request == 31 /* PT_DENY_ATTACH */) {
-        return 0; // Silently neutralize PT_DENY_ATTACH
-    }
-    return orig_ptrace ? orig_ptrace(request, pid, addr, data) : 0;
 }
 
 static const char *(*orig_dyld_get_image_name)(uint32_t image_index) = NULL;
@@ -2613,7 +2430,7 @@ static void ZTechHookInit(void) {
         ZTechInstallSignalHandlers();
         atexit(ZTechAtExitHandler);
 
-        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.6 started in pid:%d (%@ / %@)",
+        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.11 started in pid:%d (%@ / %@)",
                          getpid(), bundleId ?: @"(nil)", procName ?: @"(nil)"] UTF8String]);
 
         if (uname(&gRealUts) == 0 && gRealUts.machine[0] != '\0') {
@@ -2801,46 +2618,6 @@ static void ZTechHookInit(void) {
                 }
             }
 
-            // Swizzle NSFileManager fileExistsAtPath: and contentsOfDirectoryAtPath: to hide jailbreak files
-            Class fmCls = objc_getClass("NSFileManager");
-            if (fmCls) {
-                Method mExists = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:));
-                if (mExists) {
-                    orig_fm_fileExistsAtPath = (BOOL (*)(id, SEL, NSString *))method_getImplementation(mExists);
-                    method_setImplementation(mExists, (IMP)swizzled_fm_fileExistsAtPath);
-                }
-                Method mExistsDir = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:isDirectory:));
-                if (mExistsDir) {
-                    orig_fm_fileExistsAtPath_isDir = (BOOL (*)(id, SEL, NSString *, BOOL *))method_getImplementation(mExistsDir);
-                    method_setImplementation(mExistsDir, (IMP)swizzled_fm_fileExistsAtPath_isDir);
-                }
-                Method mContents = class_getInstanceMethod(fmCls, @selector(contentsOfDirectoryAtPath:error:));
-                if (mContents) {
-                    orig_fm_contentsOfDirectoryAtPath = (NSArray *(*)(id, SEL, NSString *, NSError **))method_getImplementation(mContents);
-                    method_setImplementation(mContents, (IMP)swizzled_fm_contentsOfDirectoryAtPath);
-                }
-            }
-
-            // Swizzle NSString writeToFile: to block sandbox write probing
-            Class strCls = objc_getClass("NSString");
-            if (strCls) {
-                Method mWrite = class_getInstanceMethod(strCls, @selector(writeToFile:atomically:encoding:error:));
-                if (mWrite) {
-                    orig_str_writeToFile = (BOOL (*)(id, SEL, NSString *, BOOL, NSStringEncoding, NSError **))method_getImplementation(mWrite);
-                    method_setImplementation(mWrite, (IMP)swizzled_str_writeToFile);
-                }
-            }
-
-            // Swizzle UIApplication canOpenURL: to hide jailbreak URL schemes
-            Class appCls = objc_getClass("UIApplication");
-            if (appCls) {
-                Method mCanOpen = class_getInstanceMethod(appCls, @selector(canOpenURL:));
-                if (mCanOpen) {
-                    orig_canOpenURL = (void *)method_getImplementation(mCanOpen);
-                    method_setImplementation(mCanOpen, (IMP)swizzled_canOpenURL);
-                }
-            }
-
             // Swizzle WKWebView for in-app browser fingerprinting & WebRTC protection
             Class wkCls = objc_getClass("WKWebView");
             if (wkCls) {
@@ -3001,7 +2778,32 @@ static void ZTechHookInit(void) {
                     pMSHook(raw_SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
                 }
 
-                // Anti-detection: Full Kernel-Grade Stealth Jailbreak Shield
+                // Swizzle NSFileManager fileExistsAtPath: inside Zalo only
+                Class fmCls = objc_getClass("NSFileManager");
+                if (fmCls) {
+                    Method mExists = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:));
+                    if (mExists) {
+                        orig_fm_fileExistsAtPath = (BOOL (*)(id, SEL, NSString *))method_getImplementation(mExists);
+                        method_setImplementation(mExists, (IMP)swizzled_fm_fileExistsAtPath);
+                    }
+                    Method mExistsDir = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:isDirectory:));
+                    if (mExistsDir) {
+                        orig_fm_fileExistsAtPath_isDir = (BOOL (*)(id, SEL, NSString *, BOOL *))method_getImplementation(mExistsDir);
+                        method_setImplementation(mExistsDir, (IMP)swizzled_fm_fileExistsAtPath_isDir);
+                    }
+                }
+
+                // Swizzle UIApplication canOpenURL: inside Zalo only
+                Class appCls = objc_getClass("UIApplication");
+                if (appCls) {
+                    Method mCanOpen = class_getInstanceMethod(appCls, @selector(canOpenURL:));
+                    if (mCanOpen) {
+                        orig_canOpenURL = (void *)method_getImplementation(mCanOpen);
+                        method_setImplementation(mCanOpen, (IMP)swizzled_canOpenURL);
+                    }
+                }
+
+                // Anti-detection: Rock-solid C-level hooks for Zalo
                 void *raw_access = dlsym(RTLD_DEFAULT, "access");
                 if (raw_access) pMSHook(raw_access, (void *)hooked_access, (void **)&orig_access);
 
@@ -3011,61 +2813,8 @@ static void ZTechHookInit(void) {
                 void *raw_lstat = dlsym(RTLD_DEFAULT, "lstat");
                 if (raw_lstat) pMSHook(raw_lstat, (void *)hooked_lstat, (void **)&orig_lstat);
 
-                void *raw_open = dlsym(RTLD_DEFAULT, "open");
-                if (raw_open) pMSHook(raw_open, (void *)hooked_open, (void **)&orig_open);
-
-                void *raw_fopen = dlsym(RTLD_DEFAULT, "fopen");
-                if (raw_fopen) pMSHook(raw_fopen, (void *)hooked_fopen, (void **)&orig_fopen);
-
-                void *raw_statfs = dlsym(RTLD_DEFAULT, "statfs");
-                if (raw_statfs) pMSHook(raw_statfs, (void *)hooked_statfs, (void **)&orig_statfs);
-
-                void *raw_dlopen = dlsym(RTLD_DEFAULT, "dlopen");
-                if (raw_dlopen) pMSHook(raw_dlopen, (void *)hooked_dlopen, (void **)&orig_dlopen);
-
-                void *raw_readlink = dlsym(RTLD_DEFAULT, "readlink");
-                if (raw_readlink) pMSHook(raw_readlink, (void *)hooked_readlink, (void **)&orig_readlink);
-
-                void *raw_realpath = dlsym(RTLD_DEFAULT, "realpath");
-                if (raw_realpath) pMSHook(raw_realpath, (void *)hooked_realpath, (void **)&orig_realpath);
-
-                // In-memory scrub of DYLD_INSERT_LIBRARIES from _NSGetEnviron
-                if (_NSGetEnviron) {
-                    char ***pEnviron = _NSGetEnviron();
-                    if (pEnviron && *pEnviron) {
-                        char **env = *pEnviron;
-                        while (*env) {
-                            if (strncmp(*env, "DYLD_INSERT_LIBRARIES=", 22) == 0 ||
-                                strncmp(*env, "DYLD_LIBRARY_PATH=", 18) == 0 ||
-                                strncmp(*env, "_MSSafeMode=", 12) == 0) {
-                                char *p = *env;
-                                while (*p) { *p = '\0'; p++; }
-                            }
-                            env++;
-                        }
-                    }
-                }
-
-                void *raw_getenv = dlsym(RTLD_DEFAULT, "getenv");
-                if (raw_getenv) pMSHook(raw_getenv, (void *)hooked_getenv, (void **)&orig_getenv);
-
-                void *raw_dlsym = dlsym(RTLD_DEFAULT, "dlsym");
-                if (raw_dlsym) pMSHook(raw_dlsym, (void *)hooked_dlsym, (void **)&orig_dlsym);
-
-                void *raw_dladdr = dlsym(RTLD_DEFAULT, "dladdr");
-                if (raw_dladdr) pMSHook(raw_dladdr, (void *)hooked_dladdr, (void **)&orig_dladdr);
-
                 void *raw_fork = dlsym(RTLD_DEFAULT, "fork");
                 if (raw_fork) pMSHook(raw_fork, (void *)hooked_fork, (void **)&orig_fork);
-
-                void *raw_system = dlsym(RTLD_DEFAULT, "system");
-                if (raw_system) pMSHook(raw_system, (void *)hooked_system, (void **)&orig_system);
-
-                void *raw_popen = dlsym(RTLD_DEFAULT, "popen");
-                if (raw_popen) pMSHook(raw_popen, (void *)hooked_popen, (void **)&orig_popen);
-
-                void *raw_ptrace = dlsym(RTLD_DEFAULT, "ptrace");
-                if (raw_ptrace) pMSHook(raw_ptrace, (void *)hooked_ptrace, (void **)&orig_ptrace);
 
                 void *raw_dyld_img = dlsym(RTLD_DEFAULT, "_dyld_get_image_name");
                 if (raw_dyld_img) pMSHook(raw_dyld_img, (void *)hooked_dyld_get_image_name, (void **)&orig_dyld_get_image_name);
