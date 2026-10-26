@@ -14,7 +14,7 @@
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "Bản phát hành đặc biệt **quang lam marketing v5.8.7**:\n\n- **Triệt Tiêu Hoàn Toàn Lộ Header Proxy (Zero Proxy-Auth Leak)**: Loại bỏ hoàn toàn header `Proxy-Authorization` khỏi các request HTTPS gửi lên máy chủ Zalo, ngăn chặn tuyệt đối việc Zalo phát hiện client đang dùng Proxy xác thực.\n- **Tàng Hình Khỏi Cơ Chế Phát Hiện Jailbreak (Stealth Jailbreak Cloaking)**: Hook ngầm các hàm hệ thống `access()`, `stat()`, `lstat()`, `fork()`, và `_dyld_get_image_name()` để che giấu triệt để các đường dẫn bẻ khoá (`/var/jb`, `Cydia`, `Sileo`, `MobileSubstrate`, `ellekit`, `dpkg`) trước Zalo.\n- **Bảo Vệ Đa Tầng NSURLSession**: Tự động gán cấu hình Proxy và thanh lọc header trên tất cả các phiên mạng `sessionWithConfiguration:delegate:delegateQueue:`."
+          "markdown": "Bản phát hành đặc biệt **quang lam marketing v5.8.8**:\n\n- **Xóa Sạch 100% iCloud Synchronizable Keychain**: Triệt tiêu toàn diện cả phân vùng Keychain đồng bộ iCloud (`kSecAttrSynchronizableAny`), đảm bảo không còn bất kỳ token phiên cũ nào bám lại trên thiết bị.\n- **Tối Ưu Đồng Bộ Màn Hình Vật Lý (Hardware Screen Coherence)**: Tương thích hoàn hảo với chế độ \"Cùng màn hình\" (Same Screen), tự động giả lập chuẩn từng pixel các dòng máy màn hình 4.7\" (iPhone SE 2022 / iPhone 8 / iPhone SE 2020) để loại bỏ hoàn toàn dấu vết lệch màn hình khi đăng ký Zalo.\n- **Bảo Vệ Đa Tầng**: Giữ nguyên cơ chế tự động xác thực ngầm `NSURLCredentialStorage`, loại bỏ rò rỉ header proxy và ẩn giấu môi trường jailbreak."
         },
         {
           "class": "DepictionTableTextView",

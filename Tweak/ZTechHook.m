@@ -2268,8 +2268,14 @@ static void ZTechPerformKeychainRestoreOrPurgeIfNeeded(void) {
                             if (agrp.length > 0) {
                                 q[(__bridge id)kSecAttrAccessGroup] = agrp;
                             }
+                            // Purge local keychain items
                             OSStatus st1 = SecItemDelete((__bridge CFDictionaryRef)q);
                             if (st1 == errSecSuccess) matchedClasses++;
+
+                            // Also purge iCloud-synchronizable keychain items across groups
+                            q[(__bridge id)kSecAttrSynchronizable] = (__bridge id)kSecAttrSynchronizableAny;
+                            OSStatus st2 = SecItemDelete((__bridge CFDictionaryRef)q);
+                            if (st2 == errSecSuccess) matchedClasses++;
                         } @catch (NSException *e) {}
                     }
                 }
