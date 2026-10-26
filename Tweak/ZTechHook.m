@@ -375,12 +375,7 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
             proxyDict[@"HTTPSUser"] = user;
             proxyDict[@"HTTPSPassword"] = pass;
         }
-        cfProxyItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTPS;
-    }
-
-    NSMutableDictionary *cfProxyHttpItem = [cfProxyItem mutableCopy];
-    if (!isSocks) {
-        cfProxyHttpItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTP;
+        cfProxyItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTP;
     }
 
     uint32_t hash = (uint32_t)([host hash] ^ (NSUInteger)port);
@@ -388,7 +383,7 @@ static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
     gMaskedLocalIPv4 = htonl((192U << 24) | (168U << 16) | (1U << 8) | (uint32_t)lastOctet);
 
     gCachedProxyDict = [proxyDict copy];
-    gCachedCFProxyArray = isSocks ? @[[cfProxyItem copy]] : @[[cfProxyItem copy], [cfProxyHttpItem copy]];
+    gCachedCFProxyArray = @[[cfProxyItem copy]];
     gCachedProxyAuthHeader = [authHeader copy];
     gProxyIsSocks = isSocks ? 1 : 0;
     gProxyEnabled = 1;
@@ -1400,14 +1395,17 @@ static NSURLSessionConfiguration *swizzled_defaultSessionConfig(id self, SEL _cm
             if (cfg.HTTPAdditionalHeaders) {
                 NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
                 ZTechSanitizeHeadersDict(headers);
-                [headers removeObjectForKey:@"Proxy-Authorization"];
-                [headers removeObjectForKey:@"proxy-authorization"];
                 [headers removeObjectForKey:@"Proxy-Authenticate"];
                 [headers removeObjectForKey:@"X-Forwarded-For"];
                 cfg.HTTPAdditionalHeaders = headers;
             }
             if (gProxyEnabled && gCachedProxyDict) {
                 cfg.connectionProxyDictionary = gCachedProxyDict;
+                if (gCachedProxyAuthHeader.length > 0) {
+                    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+                    headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
+                    cfg.HTTPAdditionalHeaders = headers;
+                }
             }
         } @catch (NSException *e) {}
     }
@@ -1424,14 +1422,17 @@ static NSURLSessionConfiguration *swizzled_ephemeralSessionConfig(id self, SEL _
             if (cfg.HTTPAdditionalHeaders) {
                 NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
                 ZTechSanitizeHeadersDict(headers);
-                [headers removeObjectForKey:@"Proxy-Authorization"];
-                [headers removeObjectForKey:@"proxy-authorization"];
                 [headers removeObjectForKey:@"Proxy-Authenticate"];
                 [headers removeObjectForKey:@"X-Forwarded-For"];
                 cfg.HTTPAdditionalHeaders = headers;
             }
             if (gProxyEnabled && gCachedProxyDict) {
                 cfg.connectionProxyDictionary = gCachedProxyDict;
+                if (gCachedProxyAuthHeader.length > 0) {
+                    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+                    headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
+                    cfg.HTTPAdditionalHeaders = headers;
+                }
             }
         } @catch (NSException *e) {}
     }
@@ -1442,10 +1443,9 @@ static SEL gZTechOrigSessionWithCfgSel = NULL;
 static NSURLSession *swizzled_sessionWithConfig(id self, SEL _cmd, NSURLSessionConfiguration *cfg, id delegate, NSOperationQueue *queue) {
     if (gProxyEnabled && gCachedProxyDict && cfg) {
         cfg.connectionProxyDictionary = gCachedProxyDict;
-        if (cfg.HTTPAdditionalHeaders) {
-            NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
-            [headers removeObjectForKey:@"Proxy-Authorization"];
-            [headers removeObjectForKey:@"proxy-authorization"];
+        if (gCachedProxyAuthHeader.length > 0) {
+            NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+            headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
             cfg.HTTPAdditionalHeaders = headers;
         }
     }
@@ -2430,7 +2430,7 @@ static void ZTechHookInit(void) {
         ZTechInstallSignalHandlers();
         atexit(ZTechAtExitHandler);
 
-        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.11 started in pid:%d (%@ / %@)",
+        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.12 started in pid:%d (%@ / %@)",
                          getpid(), bundleId ?: @"(nil)", procName ?: @"(nil)"] UTF8String]);
 
         if (uname(&gRealUts) == 0 && gRealUts.machine[0] != '\0') {
