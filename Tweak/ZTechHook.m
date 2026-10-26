@@ -18,6 +18,7 @@
 #import <fcntl.h>
 #import <sys/mount.h>
 #import <stdarg.h>
+extern char ***_NSGetEnviron(void);
 #import <dlfcn.h>
 #import <mach/mach.h>
 #import <mach/vm_map.h>
@@ -1564,6 +1565,65 @@ static int hooked_statfs(const char *path, struct statfs *buf) {
     return orig_statfs ? orig_statfs(path, buf) : -1;
 }
 
+static void *(*orig_dlopen)(const char *path, int mode) = NULL;
+static void *hooked_dlopen(const char *path, int mode) {
+    if (ZTechIsJailbreakPath(path)) {
+        return NULL;
+    }
+    return orig_dlopen ? orig_dlopen(path, mode) : NULL;
+}
+
+static ssize_t (*orig_readlink)(const char *path, char *buf, size_t bufsiz) = NULL;
+static ssize_t hooked_readlink(const char *path, char *buf, size_t bufsiz) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_readlink ? orig_readlink(path, buf, bufsiz) : -1;
+}
+
+static char *(*orig_realpath)(const char *path, char *resolved_path) = NULL;
+static char *hooked_realpath(const char *path, char *resolved_path) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return NULL;
+    }
+    return orig_realpath ? orig_realpath(path, resolved_path) : NULL;
+}
+
+static NSArray *(*orig_fm_contentsOfDirectoryAtPath)(id, SEL, NSString *, NSError **) = NULL;
+static NSArray *swizzled_fm_contentsOfDirectoryAtPath(id self, SEL _cmd, NSString *path, NSError **error) {
+    NSArray *items = orig_fm_contentsOfDirectoryAtPath ? orig_fm_contentsOfDirectoryAtPath(self, _cmd, path, error) : nil;
+    if (items && [items isKindOfClass:[NSArray class]] && items.count > 0) {
+        NSMutableArray *cleanItems = [NSMutableArray arrayWithCapacity:items.count];
+        for (NSString *item in items) {
+            if ([item isKindOfClass:[NSString class]]) {
+                if (ZTechIsJailbreakPath([item UTF8String])) continue;
+            }
+            [cleanItems addObject:item];
+        }
+        return [cleanItems copy];
+    }
+    return items;
+}
+
+static BOOL (*orig_str_writeToFile)(id, SEL, NSString *, BOOL, NSStringEncoding, NSError **) = NULL;
+static BOOL swizzled_str_writeToFile(id self, SEL _cmd, NSString *path, BOOL atomically, NSStringEncoding enc, NSError **error) {
+    if (path && [path isKindOfClass:[NSString class]]) {
+        const char *p = [path UTF8String];
+        if (strncmp(p, "/private/var/mobile/Containers", 30) != 0 &&
+            strncmp(p, "/var/mobile/Containers", 22) != 0 &&
+            (strncmp(p, "/private/", 9) == 0 || strncmp(p, "/System/", 8) == 0 ||
+             strncmp(p, "/Library/", 9) == 0 || strncmp(p, "/var/root", 9) == 0)) {
+            if (error) {
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteNoPermissionError userInfo:@{NSLocalizedDescriptionKey: @"The file could not be saved."}];
+            }
+            return NO;
+        }
+    }
+    return orig_str_writeToFile ? orig_str_writeToFile(self, _cmd, path, atomically, enc, error) : NO;
+}
+
 static char *(*orig_getenv)(const char *name) = NULL;
 static char *hooked_getenv(const char *name) {
     if (name != NULL) {
@@ -2741,7 +2801,7 @@ static void ZTechHookInit(void) {
                 }
             }
 
-            // Swizzle NSFileManager fileExistsAtPath: to hide jailbreak files
+            // Swizzle NSFileManager fileExistsAtPath: and contentsOfDirectoryAtPath: to hide jailbreak files
             Class fmCls = objc_getClass("NSFileManager");
             if (fmCls) {
                 Method mExists = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:));
@@ -2753,6 +2813,21 @@ static void ZTechHookInit(void) {
                 if (mExistsDir) {
                     orig_fm_fileExistsAtPath_isDir = (BOOL (*)(id, SEL, NSString *, BOOL *))method_getImplementation(mExistsDir);
                     method_setImplementation(mExistsDir, (IMP)swizzled_fm_fileExistsAtPath_isDir);
+                }
+                Method mContents = class_getInstanceMethod(fmCls, @selector(contentsOfDirectoryAtPath:error:));
+                if (mContents) {
+                    orig_fm_contentsOfDirectoryAtPath = (NSArray *(*)(id, SEL, NSString *, NSError **))method_getImplementation(mContents);
+                    method_setImplementation(mContents, (IMP)swizzled_fm_contentsOfDirectoryAtPath);
+                }
+            }
+
+            // Swizzle NSString writeToFile: to block sandbox write probing
+            Class strCls = objc_getClass("NSString");
+            if (strCls) {
+                Method mWrite = class_getInstanceMethod(strCls, @selector(writeToFile:atomically:encoding:error:));
+                if (mWrite) {
+                    orig_str_writeToFile = (BOOL (*)(id, SEL, NSString *, BOOL, NSStringEncoding, NSError **))method_getImplementation(mWrite);
+                    method_setImplementation(mWrite, (IMP)swizzled_str_writeToFile);
                 }
             }
 
@@ -2944,6 +3019,32 @@ static void ZTechHookInit(void) {
 
                 void *raw_statfs = dlsym(RTLD_DEFAULT, "statfs");
                 if (raw_statfs) pMSHook(raw_statfs, (void *)hooked_statfs, (void **)&orig_statfs);
+
+                void *raw_dlopen = dlsym(RTLD_DEFAULT, "dlopen");
+                if (raw_dlopen) pMSHook(raw_dlopen, (void *)hooked_dlopen, (void **)&orig_dlopen);
+
+                void *raw_readlink = dlsym(RTLD_DEFAULT, "readlink");
+                if (raw_readlink) pMSHook(raw_readlink, (void *)hooked_readlink, (void **)&orig_readlink);
+
+                void *raw_realpath = dlsym(RTLD_DEFAULT, "realpath");
+                if (raw_realpath) pMSHook(raw_realpath, (void *)hooked_realpath, (void **)&orig_realpath);
+
+                // In-memory scrub of DYLD_INSERT_LIBRARIES from _NSGetEnviron
+                if (_NSGetEnviron) {
+                    char ***pEnviron = _NSGetEnviron();
+                    if (pEnviron && *pEnviron) {
+                        char **env = *pEnviron;
+                        while (*env) {
+                            if (strncmp(*env, "DYLD_INSERT_LIBRARIES=", 22) == 0 ||
+                                strncmp(*env, "DYLD_LIBRARY_PATH=", 18) == 0 ||
+                                strncmp(*env, "_MSSafeMode=", 12) == 0) {
+                                char *p = *env;
+                                while (*p) { *p = '\0'; p++; }
+                            }
+                            env++;
+                        }
+                    }
+                }
 
                 void *raw_getenv = dlsym(RTLD_DEFAULT, "getenv");
                 if (raw_getenv) pMSHook(raw_getenv, (void *)hooked_getenv, (void **)&orig_getenv);
