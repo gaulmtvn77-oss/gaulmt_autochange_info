@@ -1546,6 +1546,31 @@ static BOOL swizzled_fm_fileExistsAtPath_isDir(id self, SEL _cmd, NSString *path
     return orig_fm_fileExistsAtPath_isDir ? orig_fm_fileExistsAtPath_isDir(self, _cmd, path, isDir) : NO;
 }
 
+static NSDictionary *(*orig_fm_attributesOfFileSystemForPath_error)(id, SEL, NSString *, NSError **) = NULL;
+static NSDictionary *swizzled_fm_attributesOfFileSystemForPath_error(id self, SEL _cmd, NSString *path, NSError **error) {
+    NSDictionary *orig = orig_fm_attributesOfFileSystemForPath_error ? orig_fm_attributesOfFileSystemForPath_error(self, _cmd, path, error) : nil;
+    if (!orig && error && *error) {
+        return nil;
+    }
+    NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:orig ?: @{}];
+    
+    // Dynamic realistic storage matching the spoofed device & RAM (Eliminates impossible 32GB iPhone 15/16 Pro anomaly)
+    uint64_t totalBytes = 128ULL * 1024ULL * 1024ULL * 1024ULL; // 128 GB default
+    if (gRamGB >= 8) {
+        totalBytes = 256ULL * 1024ULL * 1024ULL * 1024ULL; // 256 GB for Pro 8GB models
+    } else if (gRamGB <= 2) {
+        totalBytes = 32ULL * 1024ULL * 1024ULL * 1024ULL;  // 32 GB
+    } else if (gRamGB <= 3) {
+        totalBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;  // 64 GB
+    }
+    
+    // Realistic free storage (~62% free)
+    uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+    m[NSFileSystemSize] = @(totalBytes);
+    m[NSFileSystemFreeSize] = @(freeBytes);
+    return m;
+}
+
 #pragma mark - CFNetwork Low-Level Proxy Enforcement & Leak Isolation
 
 static CFDictionaryRef (*orig_CFNetworkCopySystemProxySettings)(void) = NULL;
@@ -2430,7 +2455,7 @@ static void ZTechHookInit(void) {
         ZTechInstallSignalHandlers();
         atexit(ZTechAtExitHandler);
 
-        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.12 started in pid:%d (%@ / %@)",
+        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.13 started in pid:%d (%@ / %@)",
                          getpid(), bundleId ?: @"(nil)", procName ?: @"(nil)"] UTF8String]);
 
         if (uname(&gRealUts) == 0 && gRealUts.machine[0] != '\0') {
@@ -2790,6 +2815,11 @@ static void ZTechHookInit(void) {
                     if (mExistsDir) {
                         orig_fm_fileExistsAtPath_isDir = (BOOL (*)(id, SEL, NSString *, BOOL *))method_getImplementation(mExistsDir);
                         method_setImplementation(mExistsDir, (IMP)swizzled_fm_fileExistsAtPath_isDir);
+                    }
+                    Method mAttrFS = class_getInstanceMethod(fmCls, @selector(attributesOfFileSystemForPath:error:));
+                    if (mAttrFS) {
+                        orig_fm_attributesOfFileSystemForPath_error = (NSDictionary *(*)(id, SEL, NSString *, NSError **))method_getImplementation(mAttrFS);
+                        method_setImplementation(mAttrFS, (IMP)swizzled_fm_attributesOfFileSystemForPath_error);
                     }
                 }
 
