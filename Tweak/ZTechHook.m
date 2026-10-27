@@ -9,6 +9,9 @@
 #import <sys/utsname.h>
 #import <sys/sysctl.h>
 #import <sys/stat.h>
+#import <sys/param.h>
+#import <sys/mount.h>
+#import <sys/statvfs.h>
 #import <sys/socket.h>
 #import <ifaddrs.h>
 #import <arpa/inet.h>
@@ -478,6 +481,66 @@ static NSString *ZTechBoardIdForMachine(NSString *m) {
     return @"D94AP";
 }
 
+static const char *ZTechSocForMachine(NSString *m) {
+    if (!m) return "T8010";
+    if ([m hasPrefix:@"iPhone9,"]) return "T8010";
+    if ([m hasPrefix:@"iPhone10,"]) return "T8015";
+    if ([m hasPrefix:@"iPhone11,"]) return "T8020";
+    if ([m hasPrefix:@"iPhone12,8"]) return "T8030";
+    if ([m hasPrefix:@"iPhone12,"]) return "T8030";
+    if ([m hasPrefix:@"iPhone13,"]) return "T8101";
+    if ([m hasPrefix:@"iPhone14,6"]) return "T8110";
+    if ([m hasPrefix:@"iPhone14,"]) return "T8110";
+    if ([m hasPrefix:@"iPhone15,2"] || [m hasPrefix:@"iPhone15,3"]) return "T8120";
+    if ([m hasPrefix:@"iPhone15,"]) return "T8110";
+    if ([m hasPrefix:@"iPhone16,"]) return "T8130";
+    if ([m hasPrefix:@"iPhone17,1"] || [m hasPrefix:@"iPhone17,2"]) return "T8140";
+    if ([m hasPrefix:@"iPhone17,"]) return "T8140";
+    return "T8010";
+}
+
+static const char *ZTechCpuBrandStringForMachine(NSString *m) {
+    if (!m || m.length == 0) return "Apple A10 Fusion";
+    if ([m hasPrefix:@"iPhone9,"]) return "Apple A10 Fusion";
+    if ([m hasPrefix:@"iPhone10,"]) return "Apple A11 Bionic";
+    if ([m hasPrefix:@"iPhone11,"]) return "Apple A12 Bionic";
+    if ([m hasPrefix:@"iPhone12,8"]) return "Apple A13 Bionic";
+    if ([m hasPrefix:@"iPhone12,"]) return "Apple A13 Bionic";
+    if ([m hasPrefix:@"iPhone13,"]) return "Apple A14 Bionic";
+    if ([m hasPrefix:@"iPhone14,6"]) return "Apple A15 Bionic";
+    if ([m hasPrefix:@"iPhone14,"]) return "Apple A15 Bionic";
+    if ([m hasPrefix:@"iPhone15,2"] || [m hasPrefix:@"iPhone15,3"]) return "Apple A16 Bionic";
+    if ([m hasPrefix:@"iPhone15,"]) return "Apple A15 Bionic";
+    if ([m hasPrefix:@"iPhone16,"]) return "Apple A17 Pro";
+    if ([m hasPrefix:@"iPhone17,1"] || [m hasPrefix:@"iPhone17,2"]) return "Apple A18 Pro";
+    if ([m hasPrefix:@"iPhone17,"]) return "Apple A18";
+    return "Apple A10 Fusion";
+}
+
+static const char *ZTechDarwinReleaseForIos(NSString *ios) {
+    if (!ios || ios.length == 0) return "21.6.0";
+    if ([ios hasPrefix:@"15."]) return "21.6.0";
+    if ([ios hasPrefix:@"16."]) return "22.6.0";
+    if ([ios hasPrefix:@"17."]) return "23.5.0";
+    if ([ios hasPrefix:@"18."]) return "24.2.0";
+    return "21.6.0";
+}
+
+static void ZTechFormatDarwinVersion(char *outBuf, size_t outSize, NSString *machine, NSString *ios) {
+    if (!outBuf || outSize == 0) return;
+    const char *soc = ZTechSocForMachine(machine);
+    const char *rel = ZTechDarwinReleaseForIos(ios);
+    if ([ios hasPrefix:@"15."]) {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Wed Apr 24 05:48:47 PDT 2024; root:xnu-8020.240.18.705.5~1/RELEASE_ARM64_%s", rel, soc);
+    } else if ([ios hasPrefix:@"16."]) {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Mon Aug 12 21:05:32 PDT 2024; root:xnu-8796.141.3~6/RELEASE_ARM64_%s", rel, soc);
+    } else if ([ios hasPrefix:@"17."]) {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Mon May 13 20:43:08 PDT 2024; root:xnu-10063.121.3~5/RELEASE_ARM64_%s", rel, soc);
+    } else {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Fri Nov 15 00:00:00 PST 2024; root:xnu-11215.61.5~2/RELEASE_ARM64_%s", rel, soc);
+    }
+}
+
 static NSString *ZTechScaleForMachine(NSString *mach) {
     if (!mach) return @"Scale/3.00";
     if ([mach isEqualToString:@"iPhone8,1"] || [mach isEqualToString:@"iPhone8,4"] ||
@@ -721,10 +784,11 @@ static int hooked_uname(struct utsname *buf) {
     // Clean standard iOS nodename (POSIX host)
     strncpy(buf->nodename, "iPhone", sizeof(buf->nodename) - 1);
     buf->nodename[sizeof(buf->nodename) - 1] = '\0';
-    // Spoof Darwin release and kernel version to match iOS 18 (Darwin 24) and erase iPhone 7 T8010 traces
-    strncpy(buf->release, "24.2.0", sizeof(buf->release) - 1);
+    // Spoof Darwin release and kernel version dynamically matching target iOS and machine SoC
+    const char *rel = ZTechDarwinReleaseForIos(gIosVersionObj);
+    strncpy(buf->release, rel, sizeof(buf->release) - 1);
     buf->release[sizeof(buf->release) - 1] = '\0';
-    snprintf(buf->version, sizeof(buf->version), "Darwin Kernel Version 24.2.0: Fri Nov 15 00:00:00 PST 2024; root:xnu-11215.61.5~2/RELEASE_ARM64_%s", gBoardIdCStr);
+    ZTechFormatDarwinVersion(buf->version, sizeof(buf->version), gMachineIdObj, gIosVersionObj);
     buf->version[sizeof(buf->version) - 1] = '\0';
     return 0;
 }
@@ -784,7 +848,7 @@ static int hooked_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
             } else if (name[1] == HW_NCPU || name[1] == HW_AVAILCPU) {
                 if (oldlenp != NULL) {
                     if (oldp != NULL) {
-                        int cores = 6;
+                        int cores = ([gMachineIdObj hasPrefix:@"iPhone9,"] || [gMachineIdObj hasPrefix:@"iPhone8,"]) ? 4 : 6;
                         size_t copyLen = (*oldlenp < sizeof(int)) ? *oldlenp : sizeof(int);
                         memcpy(oldp, &cores, copyLen);
                     }
@@ -812,7 +876,7 @@ static int hooked_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
                 if (oldlenp != NULL) *oldlenp = len;
                 return 0;
             } else if (name[1] == KERN_OSRELEASE) {
-                const char *rel = "24.2.0";
+                const char *rel = ZTechDarwinReleaseForIos(gIosVersionObj);
                 size_t len = strlen(rel) + 1;
                 if (oldp != NULL && oldlenp != NULL) {
                     size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
@@ -822,7 +886,7 @@ static int hooked_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
                 return 0;
             } else if (name[1] == KERN_VERSION) {
                 char kver[256] = {0};
-                snprintf(kver, sizeof(kver), "Darwin Kernel Version 24.2.0: Fri Nov 15 00:00:00 PST 2024; root:xnu-11215.61.5~2/RELEASE_ARM64_%s", gBoardIdCStr);
+                ZTechFormatDarwinVersion(kver, sizeof(kver), gMachineIdObj, gIosVersionObj);
                 size_t len = strlen(kver) + 1;
                 if (oldp != NULL && oldlenp != NULL) {
                     size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
@@ -946,7 +1010,7 @@ static int hooked_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, vo
         } else if (strcmp(name, "hw.ncpu") == 0 || strcmp(name, "hw.physicalcpu") == 0 || strcmp(name, "hw.logicalcpu") == 0) {
             if (oldlenp != NULL) {
                 if (oldp != NULL) {
-                    int cores = 6;
+                    int cores = ([gMachineIdObj hasPrefix:@"iPhone9,"] || [gMachineIdObj hasPrefix:@"iPhone8,"]) ? 4 : 6;
                     size_t copyLen = (*oldlenp < sizeof(int)) ? *oldlenp : sizeof(int);
                     memcpy(oldp, &cores, copyLen);
                 }
@@ -954,7 +1018,7 @@ static int hooked_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, vo
                 return 0;
             }
         } else if (strcmp(name, "machdep.cpu.brand_string") == 0) {
-            const char *soc = "Apple A18 Pro";
+            const char *soc = ZTechCpuBrandStringForMachine(gMachineIdObj);
             size_t len = strlen(soc) + 1;
             if (oldp != NULL && oldlenp != NULL) {
                 size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
@@ -1546,6 +1610,17 @@ static BOOL swizzled_fm_fileExistsAtPath_isDir(id self, SEL _cmd, NSString *path
     return orig_fm_fileExistsAtPath_isDir ? orig_fm_fileExistsAtPath_isDir(self, _cmd, path, isDir) : NO;
 }
 
+static uint64_t ZTechGetProfileStorageBytes(void) {
+    if (gRamGB >= 8) {
+        return 256ULL * 1024ULL * 1024ULL * 1024ULL; // 256 GB for Pro 8GB models
+    } else if (gRamGB <= 2) {
+        return 32ULL * 1024ULL * 1024ULL * 1024ULL;  // 32 GB for iPhone 7 / low RAM
+    } else if (gRamGB <= 3) {
+        return 64ULL * 1024ULL * 1024ULL * 1024ULL;  // 64 GB
+    }
+    return 128ULL * 1024ULL * 1024ULL * 1024ULL; // 128 GB default
+}
+
 static NSDictionary *(*orig_fm_attributesOfFileSystemForPath_error)(id, SEL, NSString *, NSError **) = NULL;
 static NSDictionary *swizzled_fm_attributesOfFileSystemForPath_error(id self, SEL _cmd, NSString *path, NSError **error) {
     NSDictionary *orig = orig_fm_attributesOfFileSystemForPath_error ? orig_fm_attributesOfFileSystemForPath_error(self, _cmd, path, error) : nil;
@@ -1554,21 +1629,63 @@ static NSDictionary *swizzled_fm_attributesOfFileSystemForPath_error(id self, SE
     }
     NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:orig ?: @{}];
     
-    // Dynamic realistic storage matching the spoofed device & RAM (Eliminates impossible 32GB iPhone 15/16 Pro anomaly)
-    uint64_t totalBytes = 128ULL * 1024ULL * 1024ULL * 1024ULL; // 128 GB default
-    if (gRamGB >= 8) {
-        totalBytes = 256ULL * 1024ULL * 1024ULL * 1024ULL; // 256 GB for Pro 8GB models
-    } else if (gRamGB <= 2) {
-        totalBytes = 32ULL * 1024ULL * 1024ULL * 1024ULL;  // 32 GB
-    } else if (gRamGB <= 3) {
-        totalBytes = 64ULL * 1024ULL * 1024ULL * 1024ULL;  // 64 GB
-    }
-    
-    // Realistic free storage (~62% free)
+    uint64_t totalBytes = ZTechGetProfileStorageBytes();
     uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
     m[NSFileSystemSize] = @(totalBytes);
     m[NSFileSystemFreeSize] = @(freeBytes);
     return m;
+}
+
+static int (*orig_statfs)(const char *path, struct statfs *buf) = NULL;
+static int hooked_statfs(const char *path, struct statfs *buf) {
+    int ret = orig_statfs ? orig_statfs(path, buf) : 0;
+    if (ret == 0 && buf != NULL) {
+        uint64_t totalBytes = ZTechGetProfileStorageBytes();
+        uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+        uint32_t bsize = buf->f_bsize > 0 ? buf->f_bsize : 4096;
+        buf->f_blocks = (uint64_t)(totalBytes / bsize);
+        buf->f_bfree = (uint64_t)(freeBytes / bsize);
+        buf->f_bavail = (uint64_t)(freeBytes / bsize);
+    }
+    return ret;
+}
+
+static int (*orig_statfs64)(const char *path, struct statfs *buf) = NULL;
+static int hooked_statfs64(const char *path, struct statfs *buf) {
+    int ret = orig_statfs64 ? orig_statfs64(path, buf) : 0;
+    if (ret == 0 && buf != NULL) {
+        uint64_t totalBytes = ZTechGetProfileStorageBytes();
+        uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+        uint32_t bsize = buf->f_bsize > 0 ? buf->f_bsize : 4096;
+        buf->f_blocks = (uint64_t)(totalBytes / bsize);
+        buf->f_bfree = (uint64_t)(freeBytes / bsize);
+        buf->f_bavail = (uint64_t)(freeBytes / bsize);
+    }
+    return ret;
+}
+
+static int (*orig_statvfs)(const char *path, struct statvfs *buf) = NULL;
+static int hooked_statvfs(const char *path, struct statvfs *buf) {
+    int ret = orig_statvfs ? orig_statvfs(path, buf) : 0;
+    if (ret == 0 && buf != NULL) {
+        uint64_t totalBytes = ZTechGetProfileStorageBytes();
+        uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+        unsigned long bsize = buf->f_frsize > 0 ? buf->f_frsize : (buf->f_bsize > 0 ? buf->f_bsize : 4096);
+        buf->f_blocks = (fsblkcnt_t)(totalBytes / bsize);
+        buf->f_bfree = (fsblkcnt_t)(freeBytes / bsize);
+        buf->f_bavail = (fsblkcnt_t)(freeBytes / bsize);
+    }
+    return ret;
+}
+
+static char *(*orig_getenv)(const char *) = NULL;
+static char *hooked_getenv(const char *name) {
+    if (name != NULL) {
+        if (strncmp(name, "DYLD_", 5) == 0) {
+            return NULL;
+        }
+    }
+    return orig_getenv ? orig_getenv(name) : NULL;
 }
 
 #pragma mark - CFNetwork Low-Level Proxy Enforcement & Leak Isolation
@@ -1624,18 +1741,23 @@ static int hooked_getifaddrs(struct ifaddrs **ifap) {
 #pragma mark - DeviceCheck & Hardware Attestation Neutralization
 
 static BOOL swizzled_DCDevice_isSupported(id self, SEL _cmd) {
-    return NO;
+    return YES;
 }
 
+static void (*orig_DCDevice_generateToken)(id, SEL, void (^)(NSData *, NSError *)) = NULL;
 static void swizzled_DCDevice_generateToken(id self, SEL _cmd, void (^completion)(NSData *, NSError *)) {
-    if (completion) {
-        NSError *err = [NSError errorWithDomain:@"com.apple.devicecheck.error" code:1 userInfo:@{NSLocalizedDescriptionKey: @"DeviceCheck unavailable"}];
-        completion(nil, err);
+    if (orig_DCDevice_generateToken) {
+        orig_DCDevice_generateToken(self, _cmd, completion);
+    } else if (completion) {
+        uint8_t dummy[32];
+        arc4random_buf(dummy, sizeof(dummy));
+        NSData *tok = [NSData dataWithBytes:dummy length:sizeof(dummy)];
+        completion(tok, nil);
     }
 }
 
 static BOOL swizzled_DCAppAttest_isSupported(id self, SEL _cmd) {
-    return NO;
+    return YES;
 }
 
 #pragma mark - Zalo Clipboard Anti-Spy Filter
@@ -2288,16 +2410,18 @@ static void ZTechPerformKeychainRestoreOrPurgeIfNeeded(void) {
             BOOL hasWipeFlag = [fm fileExistsAtPath:wipeFlag];
             BOOL sigMatches = (boundSig && currentSig && ([boundSig isEqualToString:currentSig] || (gUuidObj.length > 10 && [boundSig hasPrefix:gUuidObj])));
 
-            if (hasWipeFlag) {
-                ZTechHookTrace([[NSString stringWithFormat:@"[Keychain] In-process absolute clean triggered (wipeFlag=1, boundSig=%@ -> newSig=%@)",
-                                 boundSig ?: @"(none)", currentSig] UTF8String]);
+            if (hasWipeFlag || !sigMatches) {
+                ZTechHookTrace([[NSString stringWithFormat:@"[Keychain] In-process absolute clean triggered (wipeFlag=%d, boundSig=%@ -> newSig=%@)",
+                                 hasWipeFlag ? 1 : 0, boundSig ?: @"(none)", currentSig] UTF8String]);
 
                 if (currentSig.length > 1) {
                     [currentSig writeToFile:boundUuidFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
                     chmod([boundUuidFile UTF8String], 0666);
                 }
 
-                [fm removeItemAtPath:wipeFlag error:nil];
+                if (hasWipeFlag) {
+                    [fm removeItemAtPath:wipeFlag error:nil];
+                }
                 [[ZTechUbiquitousStoreStub sharedStore] resetStore];
 
                 // Purge all Zalo Keychain items across all access groups & all classes (genp, inet, cert, keys, idnt)
@@ -2455,7 +2579,7 @@ static void ZTechHookInit(void) {
         ZTechInstallSignalHandlers();
         atexit(ZTechAtExitHandler);
 
-        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.13 started in pid:%d (%@ / %@)",
+        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.14 started in pid:%d (%@ / %@)",
                          getpid(), bundleId ?: @"(nil)", procName ?: @"(nil)"] UTF8String]);
 
         if (uname(&gRealUts) == 0 && gRealUts.machine[0] != '\0') {
@@ -2715,6 +2839,18 @@ static void ZTechHookInit(void) {
             void *raw_uname = dlsym(RTLD_DEFAULT, "uname");
             if (raw_uname) pMSHook(raw_uname, (void *)hooked_uname, (void **)&orig_uname);
 
+            void *raw_statfs = dlsym(RTLD_DEFAULT, "statfs");
+            if (raw_statfs) pMSHook(raw_statfs, (void *)hooked_statfs, (void **)&orig_statfs);
+
+            void *raw_statfs64 = dlsym(RTLD_DEFAULT, "statfs64");
+            if (raw_statfs64) pMSHook(raw_statfs64, (void *)hooked_statfs64, (void **)&orig_statfs64);
+
+            void *raw_statvfs = dlsym(RTLD_DEFAULT, "statvfs");
+            if (raw_statvfs) pMSHook(raw_statvfs, (void *)hooked_statvfs, (void **)&orig_statvfs);
+
+            void *raw_getenv = dlsym(RTLD_DEFAULT, "getenv");
+            if (raw_getenv) pMSHook(raw_getenv, (void *)hooked_getenv, (void **)&orig_getenv);
+
             void *raw_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
             void *raw_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
             if (raw_sysctlbyname) pMSHook(raw_sysctlbyname, (void *)hooked_sysctlbyname, (void **)&orig_sysctlbyname);
@@ -2906,7 +3042,10 @@ static void ZTechHookInit(void) {
                     Method mSupp = class_getClassMethod(dcCls, @selector(isSupported));
                     if (mSupp) method_setImplementation(mSupp, (IMP)swizzled_DCDevice_isSupported);
                     Method mTok = class_getInstanceMethod(dcCls, @selector(generateTokenWithCompletionHandler:));
-                    if (mTok) method_setImplementation(mTok, (IMP)swizzled_DCDevice_generateToken);
+                    if (mTok) {
+                        orig_DCDevice_generateToken = (void (*)(id, SEL, void (^)(NSData *, NSError *)))method_getImplementation(mTok);
+                        method_setImplementation(mTok, (IMP)swizzled_DCDevice_generateToken);
+                    }
                 }
                 Class attCls = objc_getClass("DCAppAttestService");
                 if (attCls) {
