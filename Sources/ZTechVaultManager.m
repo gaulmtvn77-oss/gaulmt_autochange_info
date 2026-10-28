@@ -923,23 +923,66 @@ static void ZTechNativeRecursiveChownAndChmod(const char *cpath, uid_t uid, gid_
 
 + (void)launchZaloApp {
     @try {
-        Class wsCls = NSClassFromString(@"LSApplicationWorkspace");
-        if (wsCls) {
-            id ws = ((id (*)(id, SEL))objc_msgSend)(wsCls, sel_registerName("defaultWorkspace"));
-            if (ws) {
-                SEL openSel = sel_registerName("openApplicationWithBundleID:");
-                if ([ws respondsToSelector:openSel]) {
-                    NSArray<NSString *> *bids = @[@"vn.com.vng.zalo", @"com.vng.zalo", @"com.zing.zalo", @"com.vng.zingalo", @"vn.com.vng.zingalo", @"com.zing.zingalo"];
-                    for (NSString *bid in bids) {
-                        BOOL opened = ((BOOL (*)(id, SEL, NSString *))objc_msgSend)(ws, openSel, bid);
-                        if (opened) return;
+        const char *bids[] = {
+            "vn.com.vng.zingalo",
+            "vn.com.vng.zalo",
+            "com.vng.zingalo",
+            "com.zing.zalo"
+        };
+
+        // 1. Launch Zalo as an independent CLI process via uiopen (posix_spawn)
+        // This eliminates the iOS application referral hierarchy and removes the breadcrumb shortcut ("◀ quang lam marketing")
+        const char *uiopenPaths[] = {
+            "/var/jb/usr/bin/uiopen",
+            "/usr/bin/uiopen",
+            "/var/jb/bin/uiopen",
+            "/bin/uiopen"
+        };
+
+        BOOL launched = NO;
+        for (int i = 0; i < 4; i++) {
+            if (access(uiopenPaths[i], X_OK) == 0) {
+                for (int b = 0; b < 4; b++) {
+                    pid_t pid;
+                    char *argv[] = { (char *)uiopenPaths[i], (char *)"--bundleid", (char *)bids[b], NULL };
+                    int status = posix_spawn(&pid, uiopenPaths[i], NULL, NULL, argv, environ);
+                    if (status == 0) {
+                        launched = YES;
+                        break;
+                    }
+                }
+                if (launched) break;
+            }
+        }
+
+        // 2. Fallback: LSApplicationWorkspace with BundleID directly (NEVER use openURL:zalo:// to prevent breadcrumb)
+        if (!launched) {
+            Class wsCls = NSClassFromString(@"LSApplicationWorkspace");
+            if (wsCls) {
+                id ws = ((id (*)(id, SEL))objc_msgSend)(wsCls, sel_registerName("defaultWorkspace"));
+                if (ws) {
+                    SEL openSel = sel_registerName("openApplicationWithBundleID:");
+                    if ([ws respondsToSelector:openSel]) {
+                        for (int b = 0; b < 4; b++) {
+                            NSString *bid = [NSString stringWithUTF8String:bids[b]];
+                            BOOL opened = ((BOOL (*)(id, SEL, NSString *))objc_msgSend)(ws, openSel, bid);
+                            if (opened) {
+                                launched = YES;
+                                break;
+                            }
+                        }
                     }
                 }
             }
         }
-        NSURL *zaloUrl = [NSURL URLWithString:@"zalo://"];
-        if ([[UIApplication sharedApplication] canOpenURL:zaloUrl]) {
-            [[UIApplication sharedApplication] openURL:zaloUrl options:@{} completionHandler:nil];
+
+        // 3. Cleanly dismiss/suspend this tool to background if supported
+        if (launched) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if ([[UIApplication sharedApplication] respondsToSelector:sel_registerName("suspend")]) {
+                    ((void (*)(id, SEL))objc_msgSend)([UIApplication sharedApplication], sel_registerName("suspend"));
+                }
+            });
         }
     } @catch (NSException *e) {}
 }

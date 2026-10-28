@@ -1,8 +1,8 @@
 Package: com.ztech.devicechanger
 Name: quang lam marketing
-Version: 5.8.14
+Version: 5.8.15
 Architecture: iphoneos-arm
-Description: quang lam marketing v5.8.14 - POSIX statfs, Dynamic SoC sysctl, Genuine DCDevice Attestation & Anti-Checkpoint Protection
+Description: quang lam marketing v5.8.15 - Native Standalone Launch (Zero Breadcrumb/Referral Isolation) & Anti-Detection
 Maintainer: quang lam marketing
 Author: quang lam marketing
 Section: Utilities
