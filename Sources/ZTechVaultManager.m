@@ -1117,7 +1117,7 @@ static void ZTechNativeRecursiveChownAndChmod(const char *cpath, uid_t uid, gid_
         if (!storeCls || !fetchCls || !contactCls || !saveCls) return 0;
 
         id store = [[storeCls alloc] init];
-        id fetch = [[fetchCls alloc] initWithKeysToFetch:@[@"givenName"]];
+        id fetch = ((id (*)(id, SEL, id))objc_msgSend)([fetchCls alloc], sel_registerName("initWithKeysToFetch:"), @[@"givenName"]);
         __block NSInteger currentCount = 0;
         SEL enumSel = sel_registerName("enumerateContactsWithFetchRequest:error:usingBlock:");
         if ([store respondsToSelector:enumSel]) {
