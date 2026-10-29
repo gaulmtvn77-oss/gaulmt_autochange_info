@@ -44,17 +44,17 @@
 extern int __sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
 
 static NSDictionary *gCachedProfile = nil;
-static char gMachineCStr[64] = "iPhone17,2";
-static char gBoardIdCStr[32] = "D94AP";
-static char gModelNameCStr[64] = "iPhone 16 Pro Max";
+static char gMachineCStr[64] = "iPhone9,3";
+static char gBoardIdCStr[32] = "D10AP";
+static char gModelNameCStr[64] = "iPhone 7";
 static char gRealMachineCStr[64] = "iPhone12,1";
 static struct utsname gRealUts;
 static int gHasRealUts = 0;
 static int gIsAidaProcess = 0;
-static uint64_t gRamBytes = 8ULL * 1024ULL * 1024ULL * 1024ULL;
-static NSString *gModelNameObj = @"iPhone 16 Pro Max";
-static NSString *gMachineIdObj = @"iPhone17,2";
-static NSString *gIosVersionObj = @"18.2.1";
+static uint64_t gRamBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+static NSString *gModelNameObj = @"iPhone 7";
+static NSString *gMachineIdObj = @"iPhone9,3";
+static NSString *gIosVersionObj = @"15.8.4";
 static NSString *gUuidObj = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
 static NSUUID *gCachedVendorUUID = nil;
 static NSString *gSerialNumberObj = @"F17K308P0D7L";
@@ -67,17 +67,17 @@ static NSString *gRealBoardIdObj = @"";
 static NSString *gRealIosVersionObj = @"";
 static NSString *gRealIosUnderscoreObj = @"";
 static NSString *gRealScaleStr = @"Scale/2.00";
-static NSString *gTargetIosUnderscoreObj = @"18_2_1";
-static NSString *gTargetScaleStr = @"Scale/3.00";
+static NSString *gTargetIosUnderscoreObj = @"15_8_4";
+static NSString *gTargetScaleStr = @"Scale/2.00";
 static NSString *gCarrierNameObj = @"Viettel";
 static NSString *gActiveProxyObj = @"";
 static float gBatteryFloat = 0.76f;
-static NSInteger gScreenWidth = 440;
-static NSInteger gScreenHeight = 956;
-static float gScreenScale = 3.0f;
-static NSInteger gCpuCores = 6;
-static NSInteger gRamGB = 8;
-static NSString *gGpuNameObj = @"Apple A18 Pro GPU";
+static NSInteger gScreenWidth = 375;
+static NSInteger gScreenHeight = 667;
+static float gScreenScale = 2.0f;
+static NSInteger gCpuCores = 4;
+static NSInteger gRamGB = 2;
+static NSString *gGpuNameObj = @"Apple A10 Fusion GPU";
 static NSString *gWebKitUserAgent = nil;
 
 static NSString *ZTechGPUNameForMachine(NSString *machine);
@@ -414,15 +414,15 @@ static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
     NSString *machine = m[@"machineId"];
     NSString *model = m[@"modelName"];
     if (!machine || machine.length == 0 || !model || model.length == 0) {
-        m[@"machineId"] = @"iPhone17,2";
-        m[@"modelName"] = @"iPhone 16 Pro Max";
+        m[@"machineId"] = @"iPhone9,3";
+        m[@"modelName"] = @"iPhone 7";
     }
     NSString *ios = m[@"iosVersion"];
     if (!ios || [ios integerValue] < 14) {
-        m[@"iosVersion"] = @"18.2.1";
+        m[@"iosVersion"] = @"15.8.4";
     }
     if (!m[@"ramGB"] || [m[@"ramGB"] integerValue] < 2) {
-        m[@"ramGB"] = @8;
+        m[@"ramGB"] = @2;
     }
     if (!m[@"batteryPercent"] || [m[@"batteryPercent"] integerValue] <= 0) {
         m[@"batteryPercent"] = @76;
@@ -517,6 +517,16 @@ static const char *ZTechCpuBrandStringForMachine(NSString *m) {
     return "Apple A10 Fusion";
 }
 
+static const char *ZTechBuildVersionForIos(NSString *ios) {
+    if (!ios || ios.length == 0) return "19H390";
+    if ([ios hasPrefix:@"15.8"]) return "19H390";
+    if ([ios hasPrefix:@"15."]) return "19H390";
+    if ([ios hasPrefix:@"16."]) return "20G81";
+    if ([ios hasPrefix:@"17."]) return "21G93";
+    if ([ios hasPrefix:@"18."]) return "22B83";
+    return "19H390";
+}
+
 static const char *ZTechDarwinReleaseForIos(NSString *ios) {
     if (!ios || ios.length == 0) return "21.6.0";
     if ([ios hasPrefix:@"15."]) return "21.6.0";
@@ -554,7 +564,7 @@ static NSString *ZTechScaleForMachine(NSString *mach) {
 }
 
 static NSString *ZTechMarketingNameForMachine(NSString *mach) {
-    if (!mach) return @"iPhone 16 Pro Max";
+    if (!mach) return @"iPhone 7";
     if ([mach isEqualToString:@"iPhone17,2"]) return @"iPhone 16 Pro Max";
     if ([mach isEqualToString:@"iPhone17,1"]) return @"iPhone 16 Pro";
     if ([mach isEqualToString:@"iPhone17,4"]) return @"iPhone 16 Plus";
@@ -645,7 +655,7 @@ static void ZTechApplyCachedProfileValues(NSDictionary *prof) {
     }
 
     NSInteger ramGB = [prof[@"ramGB"] integerValue];
-    if (ramGB < 2) ramGB = 8;
+    if (ramGB < 2) ramGB = 2;
     gRamBytes = (uint64_t)ramGB * 1024ULL * 1024ULL * 1024ULL;
 
     NSInteger pct = [prof[@"batteryPercent"] integerValue];
@@ -675,10 +685,10 @@ static void ZTechApplyCachedProfileValues(NSDictionary *prof) {
         }
     }
     gScreenScale = [gTargetScaleStr containsString:@"2.00"] ? 2.0f : 3.0f;
-    gCpuCores = 6;
+    gCpuCores = ([gMachineIdObj hasPrefix:@"iPhone9,"] || [gMachineIdObj hasPrefix:@"iPhone8,"]) ? 4 : 6;
     gRamGB = ramGB;
     gGpuNameObj = ZTechGPUNameForMachine(gMachineIdObj);
-    gWebKitUserAgent = [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83", gTargetIosUnderscoreObj ?: @"18_2_1"];
+    gWebKitUserAgent = [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
 
     ZTechRebuildCachedProxyState(gActiveProxyObj);
 }
@@ -867,7 +877,7 @@ static int hooked_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
                 if (oldlenp != NULL) *oldlenp = len;
                 return 0;
             } else if (name[1] == KERN_OSVERSION) {
-                const char *build = "22B83";
+                const char *build = ZTechBuildVersionForIos(gIosVersionObj);
                 size_t len = strlen(build) + 1;
                 if (oldp != NULL && oldlenp != NULL) {
                     size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
@@ -933,7 +943,7 @@ static int hooked_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, vo
                 return 0;
             }
         } else if (strcmp(name, "kern.osversion") == 0) {
-            const char *build = "22B83";
+            const char *build = ZTechBuildVersionForIos(gIosVersionObj);
             size_t len = strlen(build) + 1;
             if (oldp != NULL && oldlenp != NULL) {
                 size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
@@ -1077,7 +1087,7 @@ static CFTypeRef ZTechGetSpoofedMGCopyAnswer(CFStringRef prop) {
         return (__bridge_retained CFTypeRef)[gIosVersionObj copy];
     }
     if (CFEqual(prop, CFSTR("BuildVersion"))) {
-        return (__bridge_retained CFTypeRef)[@"22B83" copy];
+        return (__bridge_retained CFTypeRef)[[NSString stringWithUTF8String:ZTechBuildVersionForIos(gIosVersionObj)] copy];
     }
     if (CFEqual(prop, CFSTR("UniqueDeviceID")) || CFEqual(prop, CFSTR("UniqueDeviceIDData"))) {
         NSString *udid = [[gUuidObj stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
@@ -1188,7 +1198,7 @@ static CFDictionaryRef hooked_CFCopySystemVersionDictionary(void) {
     CFDictionaryRef orig = orig_CFCopySystemVersionDictionary ? orig_CFCopySystemVersionDictionary() : NULL;
     NSMutableDictionary *dict = orig ? [(__bridge NSDictionary *)orig mutableCopy] : [NSMutableDictionary dictionary];
     dict[@"ProductVersion"] = gIosVersionObj ?: @"18.2.1";
-    dict[@"ProductBuildVersion"] = @"22B83";
+    dict[@"ProductBuildVersion"] = [NSString stringWithUTF8String:ZTechBuildVersionForIos(gIosVersionObj)];
     dict[@"ProductName"] = @"iPhone OS";
     dict[@"ProductUserVisibleVersion"] = gIosVersionObj ?: @"18.2.1";
     if (orig) CFRelease(orig);
@@ -1246,7 +1256,7 @@ static CFTypeRef hooked_IORegistryEntryCreateCFProperty(uint32_t entry, CFString
 // omitted to prevent dyld chained fixups corruption (SIGBUS/EXC_BAD_ACCESS) on iOS 15+.
 
 static NSString *ZTechGPUNameForMachine(NSString *machine) {
-    if (!machine || machine.length == 0) return @"Apple A18 Pro GPU";
+    if (!machine || machine.length == 0) return @"Apple A10 Fusion GPU";
     if ([machine hasPrefix:@"iPhone17,1"] || [machine hasPrefix:@"iPhone17,2"]) return @"Apple A18 Pro GPU";
     if ([machine hasPrefix:@"iPhone17,"]) return @"Apple A18 GPU";
     if ([machine hasPrefix:@"iPhone16,"]) return @"Apple A17 Pro GPU";
@@ -1259,7 +1269,7 @@ static NSString *ZTechGPUNameForMachine(NSString *machine) {
     if ([machine hasPrefix:@"iPhone10,"]) return @"Apple A11 Bionic GPU";
     if ([machine hasPrefix:@"iPhone9,"]) return @"Apple A10 Fusion GPU";
     if ([machine hasPrefix:@"iPhone8,"]) return @"Apple A9 GPU";
-    return @"Apple A18 Pro GPU";
+    return @"Apple A10 Fusion GPU";
 }
 
 static NSString *(*orig_MTLDevice_name)(id, SEL) = NULL;
@@ -1292,12 +1302,12 @@ static NSString *swizzled_mobileNetworkCode(id self, SEL _cmd) {
 
 static NSString *(*orig_systemVersion)(id, SEL) = NULL;
 static NSString *swizzled_systemVersion(id self, SEL _cmd) {
-    return gIosVersionObj ?: @"18.2.1";
+    return gIosVersionObj ?: @"15.8.4";
 }
 
 static NSString *(*orig_deviceName)(id, SEL) = NULL;
 static NSString *swizzled_deviceName(id self, SEL _cmd) {
-    return gModelNameObj ?: @"iPhone 16 Pro Max";
+    return gModelNameObj ?: @"iPhone 7";
 }
 
 static NSString *swizzled_rawDeviceName(id self, SEL _cmd) {
@@ -1348,13 +1358,13 @@ static id swizzled_deviceInfoForKey(id self, SEL _cmd, NSString *key) {
         }
         if ([key isEqualToString:@"DeviceName"] || [key isEqualToString:@"UserAssignedDeviceName"] ||
             [key isEqualToString:@"MarketingNameString"] || [key isEqualToString:@"marketing-name"]) {
-            return gModelNameObj ?: @"iPhone 16 Pro Max";
+            return gModelNameObj ?: @"iPhone 7";
         }
         if ([key isEqualToString:@"ProductVersion"]) {
-            return gIosVersionObj ?: @"18.2.1";
+            return gIosVersionObj ?: @"15.8.4";
         }
         if ([key isEqualToString:@"BuildVersion"]) {
-            return @"22B83";
+            return [NSString stringWithUTF8String:ZTechBuildVersionForIos(gIosVersionObj)];
         }
     }
     if (gZTechOrigDevInfoSel && [self respondsToSelector:gZTechOrigDevInfoSel]) {
@@ -1796,8 +1806,8 @@ static SEL gZTechOrigWKInitWithFrameSel = NULL;
 static SEL gZTechOrigWKSetUASel = NULL;
 
 static NSString *ZTechGenerateWebKitFingerprintScript(void) {
-    NSString *fakeUA = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83", gTargetIosUnderscoreObj ?: @"18_2_1"];
-    NSString *fakeAppVer = [NSString stringWithFormat:@"5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83", gTargetIosUnderscoreObj ?: @"18_2_1"];
+    NSString *fakeUA = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
+    NSString *fakeAppVer = [NSString stringWithFormat:@"5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
     NSString *fakeGPU = gGpuNameObj ?: @"Apple A18 Pro GPU";
 
     return [NSString stringWithFormat:
@@ -1878,7 +1888,7 @@ static id swizzled_WKWebView_initWithFrame_configuration(id self, SEL _cmd, CGRe
     }
     if (view && [view isKindOfClass:[WKWebView class]]) {
         WKWebView *wv = (WKWebView *)view;
-        NSString *fakeUA = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83", gTargetIosUnderscoreObj ?: @"18_2_1"];
+        NSString *fakeUA = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
         @try {
             [wv setCustomUserAgent:fakeUA];
         } @catch (NSException *e) {}
@@ -1889,7 +1899,7 @@ static id swizzled_WKWebView_initWithFrame_configuration(id self, SEL _cmd, CGRe
 static void swizzled_WKWebView_setCustomUserAgent(id self, SEL _cmd, NSString *userAgent) {
     NSString *sanitized = ZTechSanitizeHeaderString(userAgent);
     if (!sanitized || sanitized.length == 0 || [sanitized containsString:@"15_5"] || [sanitized containsString:@"15.5"]) {
-        sanitized = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83", gTargetIosUnderscoreObj ?: @"18_2_1"];
+        sanitized = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
     }
     if (orig_WKWebView_setCustomUserAgent) {
         orig_WKWebView_setCustomUserAgent(self, _cmd, sanitized);
@@ -2579,7 +2589,7 @@ static void ZTechHookInit(void) {
         ZTechInstallSignalHandlers();
         atexit(ZTechAtExitHandler);
 
-        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.15 started in pid:%d (%@ / %@)",
+        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ZTechHookInit v5.8.16 started in pid:%d (%@ / %@)",
                          getpid(), bundleId ?: @"(nil)", procName ?: @"(nil)"] UTF8String]);
 
         if (uname(&gRealUts) == 0 && gRealUts.machine[0] != '\0') {

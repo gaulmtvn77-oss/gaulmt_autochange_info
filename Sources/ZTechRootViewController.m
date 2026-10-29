@@ -358,9 +358,9 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         [prefs setBool:NO forKey:@"ZTech_LockModel"];
         [prefs setBool:NO forKey:@"ZTech_SameScreen"];
         [prefs setBool:NO forKey:@"ZTech_MatchChip"];
-        [prefs setInteger:ZTechModelTierIPhone16 forKey:@"ZTech_ModelTier"];
+        [prefs setInteger:ZTechModelTierNativeCompatible forKey:@"ZTech_ModelTier"];
         [prefs synchronize];
-        self.currentModelTier = ZTechModelTierIPhone16;
+        self.currentModelTier = ZTechModelTierNativeCompatible;
         self.currentProfile = [ZTechDeviceDatabase generateProfileWithLockRealModel:NO
                                                                          sameScreen:NO
                                                                           matchChip:NO
@@ -687,7 +687,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     UILabel *appSub = [[UILabel alloc] init];
     appSub.translatesAutoresizingMaskIntoConstraints = NO;
-    appSub.text = @"Identity & Vault • v5.8.15";
+    appSub.text = @"Identity & Vault • v5.8.16";
     appSub.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
     appSub.textColor = [self mutedTextColor];
     appSub.adjustsFontSizeToFitWidth = YES;
@@ -1276,8 +1276,8 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     segRow.spacing = 6.0;
     [segRow.heightAnchor constraintEqualToConstant:36.0].active = YES;
 
-    NSArray<NSString *> *segTitles = @[@"Chỉ iPhone 16", @"Đời Cao 14–16", @"Tất cả (6s–16)"];
-    NSArray<NSNumber *> *segTags = @[@(ZTechModelTierIPhone16), @(ZTechModelTierHighEnd), @(ZTechModelTierAll)];
+    NSArray<NSString *> *segTitles = @[@"⭐ Chuẩn 7/8 (Sống 100%)", @"Tất cả (6s–16)", @"Đời Cao 14–16"];
+    NSArray<NSNumber *> *segTags = @[@(ZTechModelTierNativeCompatible), @(ZTechModelTierAll), @(ZTechModelTierHighEnd)];
     NSMutableArray<UIButton *> *segBtns = [NSMutableArray array];
 
     for (NSInteger i = 0; i < segTitles.count; i++) {
@@ -1434,7 +1434,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     UISwitch *sw4 = nil; UILabel *sub4 = nil;
     UIView *row4 = [self createSwitchRowWithIcon:ZTechIconChipCpu
                                            title:@"Giới hạn cùng dung lượng RAM máy thật"
-                                        subtitle:@"OFF: Cho phép giả lập Chip A18 Pro & RAM 8GB"
+                                        subtitle:@"OFF: Cho phép giả lập Chip A10 Fusion & RAM 8GB"
                                        isDefault:defChip
                                        outSwitch:&sw4
                                      outSubLabel:&sub4];
@@ -2294,7 +2294,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
     self.isSavingNewVaultAccount = YES;
     self.editingVaultAccountId = nil;
     self.vaultNameInputField.hidden = NO;
-    self.vaultNameInputField.text = [NSString stringWithFormat:@"Acc Zalo #%lu (%@)", (unsigned long)nextNum, self.currentProfile.modelName ?: @"iPhone 16"];
+    self.vaultNameInputField.text = [NSString stringWithFormat:@"Acc Zalo #%lu (%@)", (unsigned long)nextNum, self.currentProfile.modelName ?: @"iPhone 7"];
     self.vaultProxyInputField.text = self.currentProfile.activeProxy ?: @"";
     self.vaultModalTitleLabel.text = @"LƯU ACC ZALO VÀO KHO";
     [self styleButton:self.btnVaultSaveConfirm
@@ -2892,19 +2892,19 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 
     self.matchChipSubLabel.text = self.matchChipSwitch.isOn
         ? @"ON: Chỉ bốc các máy cùng dung lượng RAM máy thật"
-        : @"OFF: Cho phép giả lập Chip A18 Pro & RAM 8GB đời mới";
+        : @"OFF: Cho phép giả lập Chip A10 Fusion & RAM 8GB đời mới";
 
     [self refreshCheckFooterText];
 }
 
 - (void)refreshUIWithCurrentProfile {
-    self.modelHeroLabel.text = self.currentProfile.modelName ?: @"iPhone 16 Pro Max";
-    self.machineBadgeLabel.text = [NSString stringWithFormat:@"  %@  ", self.currentProfile.machineId ?: @"iPhone17,2"];
-    self.iosBadgeLabel.text = [NSString stringWithFormat:@"  iOS %@  ", self.currentProfile.iosVersion ?: @"18.2.1"];
+    self.modelHeroLabel.text = self.currentProfile.modelName ?: @"iPhone 7";
+    self.machineBadgeLabel.text = [NSString stringWithFormat:@"  %@  ", self.currentProfile.machineId ?: @"iPhone9,3"];
+    self.iosBadgeLabel.text = [NSString stringWithFormat:@"  iOS %@  ", self.currentProfile.iosVersion ?: @"15.8.4"];
     self.uuidMonoLabel.text = [NSString stringWithFormat:@"UUID: %@", self.currentProfile.identifier ?: @""];
 
-    self.specChipValueLabel.text = [NSString stringWithFormat:@"%@ · %ldGB", self.currentProfile.chipName ?: @"A18 Pro", (long)self.currentProfile.ramGB];
-    self.specScreenValueLabel.text = [NSString stringWithFormat:@"%@ px (@3x)", self.currentProfile.screenKey ?: @"440x956"];
+    self.specChipValueLabel.text = [NSString stringWithFormat:@"%@ · %ldGB", self.currentProfile.chipName ?: @"A10 Fusion", (long)self.currentProfile.ramGB];
+    self.specScreenValueLabel.text = [NSString stringWithFormat:@"%@ px (@3x)", self.currentProfile.screenKey ?: @"375x667"];
     self.specNetValueLabel.text = [NSString stringWithFormat:@"%@ · %@", self.currentProfile.carrier ?: @"Viettel", self.currentProfile.city ?: @"Hà Nội"];
     self.specBatValueLabel.text = [NSString stringWithFormat:@"%ld%% · %ld danh bạ", (long)self.currentProfile.batteryPercent, (long)self.currentProfile.contactsCount];
 

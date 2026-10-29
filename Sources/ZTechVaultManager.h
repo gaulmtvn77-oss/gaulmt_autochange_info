@@ -56,6 +56,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (void)setSystemAirplaneMode:(BOOL)enabled;
 + (BOOL)isSystemAirplaneModeEnabled;
++ (NSInteger)seedNaturalVietnameseContactsIfFew;
 
 @end
 

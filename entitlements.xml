@@ -19,6 +19,7 @@
 	<key>com.apple.private.tcc.allow</key>
 	<array>
 		<string>kTCCServicePasteboard</string>
+		<string>kTCCServiceAddressBook</string>
 	</array>
 </dict>
 </plist>

@@ -1,5 +1,6 @@
 #import "ZTechVaultManager.h"
 #import <UIKit/UIKit.h>
+#import <Contacts/Contacts.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <sys/stat.h>
@@ -1103,5 +1104,62 @@ static void ZTechNativeRecursiveChownAndChmod(const char *cpath, uid_t uid, gid_
     return [self restoreAndLaunchAccount:targetAcc outProfile:outProfile error:error];
 }
 
+
+
++ (NSInteger)seedNaturalVietnameseContactsIfFew {
+    @try {
+        CNContactStore *store = [[CNContactStore alloc] init];
+        CNContactFetchRequest *fetch = [[CNContactFetchRequest alloc] initWithKeysToFetch:@[CNContactGivenNameKey]];
+        __block NSInteger currentCount = 0;
+        [store enumerateContactsWithFetchRequest:fetch error:nil usingBlock:^(CNContact * _Nonnull contact, BOOL * _Nonnull stop) {
+            currentCount++;
+            if (currentCount >= 20) *stop = YES;
+        }];
+
+        if (currentCount >= 15) {
+            return currentCount;
+        }
+
+        NSArray<NSDictionary *> *naturalNames = @[
+            @{@"first": @"Hùng", @"last": @"Nguyễn Văn", @"phone": @"0983124567"},
+            @{@"first": @"Mai", @"last": @"Trần Thị", @"phone": @"0912456789"},
+            @{@"first": @"Nam", @"last": @"Lê Hoàng", @"phone": @"0903456781"},
+            @{@"first": @"Tuấn", @"last": @"Phạm Anh", @"phone": @"0934567890"},
+            @{@"first": @"Lan", @"last": @"Vũ Thị", @"phone": @"0978123456"},
+            @{@"first": @"Duy", @"last": @"Đặng Quốc", @"phone": @"0868123456"},
+            @{@"first": @"Hương", @"last": @"Hoàng Thu", @"phone": @"0898765432"},
+            @{@"first": @"Đức", @"last": @"Ngô Minh", @"phone": @"0812345678"},
+            @{@"first": @"Linh", @"last": @"Bùi Thùy", @"phone": @"0834567890"},
+            @{@"first": @"Cường", @"last": @"Đỗ Mạnh", @"phone": @"0771234567"},
+            @{@"first": @"Quang", @"last": @"Lý Nhật", @"phone": @"0789123456"},
+            @{@"first": @"Thảo", @"last": @"Dương Phương", @"phone": @"0765432109"},
+            @{@"first": @"Long", @"last": @"Trương Thanh", @"phone": @"0701234567"},
+            @{@"first": @"Trang", @"last": @"Lâm Thu", @"phone": @"0398765432"},
+            @{@"first": @"Hiếu", @"last": @"Đinh Trung", @"phone": @"0381234567"},
+            @{@"first": @"Bác Ba Cơm Tấm", @"last": @"", @"phone": @"0908765432"},
+            @{@"first": @"Anh Tuấn Sửa Xe", @"last": @"", @"phone": @"0918765432"},
+            @{@"first": @"Cô Hoa Tạp Hóa", @"last": @"", @"phone": @"0948765432"},
+            @{@"first": @"Taxi Mai Linh", @"last": @"", @"phone": @"02838383838"},
+            @{@"first": @"Grab Giao Hàng", @"last": @"", @"phone": @"0967890123"}
+        ];
+
+        CNSaveRequest *saveReq = [[CNSaveRequest alloc] init];
+        NSInteger added = 0;
+        for (NSDictionary *d in naturalNames) {
+            CNMutableContact *c = [[CNMutableContact alloc] init];
+            c.givenName = d[@"first"];
+            c.familyName = d[@"last"];
+            CNPhoneNumber *pn = [CNPhoneNumber phoneNumberWithStringValue:d[@"phone"]];
+            CNLabeledValue *val = [CNLabeledValue labeledValueWithLabel:CNLabelPhoneNumberMobile value:pn];
+            c.phoneNumbers = @[val];
+            [saveReq addContact:c toContainerWithIdentifier:nil];
+            added++;
+        }
+        [store executeSaveRequest:saveReq error:nil];
+        return (currentCount + added);
+    } @catch (NSException *e) {
+        return 0;
+    }
+}
 
 @end

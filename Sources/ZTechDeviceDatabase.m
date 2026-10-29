@@ -112,11 +112,11 @@ extern char **environ;
 // Complete iPhone lineup: iPhone 6s/SE through iPhone 16 Pro Max (37 models)
 + (NSArray<NSDictionary *> *)allDeviceSpecs {
     return @[
-        @{@"name": @"iPhone 6s", @"machine": @"iPhone8,1", @"chip": @"A9", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"15.8", @"15.8.2", @"15.8.3"]},
-        @{@"name": @"iPhone 6s Plus", @"machine": @"iPhone8,2", @"chip": @"A9", @"ram": @2, @"screen": @"414x736", @"tier": @0, @"ios": @[@"15.8", @"15.8.2", @"15.8.3"]},
-        @{@"name": @"iPhone SE (1st Gen)", @"machine": @"iPhone8,4", @"chip": @"A9", @"ram": @2, @"screen": @"320x568", @"tier": @0, @"ios": @[@"15.8", @"15.8.2", @"15.8.3"]},
-        @{@"name": @"iPhone 7", @"machine": @"iPhone9,3", @"chip": @"A10 Fusion", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"15.8", @"15.8.2", @"15.8.3"]},
-        @{@"name": @"iPhone 7 Plus", @"machine": @"iPhone9,4", @"chip": @"A10 Fusion", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"15.8", @"15.8.2", @"15.8.3"]},
+        @{@"name": @"iPhone 6s", @"machine": @"iPhone8,1", @"chip": @"A9", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
+        @{@"name": @"iPhone 6s Plus", @"machine": @"iPhone8,2", @"chip": @"A9", @"ram": @2, @"screen": @"414x736", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
+        @{@"name": @"iPhone SE (1st Gen)", @"machine": @"iPhone8,4", @"chip": @"A9", @"ram": @2, @"screen": @"320x568", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
+        @{@"name": @"iPhone 7", @"machine": @"iPhone9,3", @"chip": @"A10 Fusion", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
+        @{@"name": @"iPhone 7 Plus", @"machine": @"iPhone9,4", @"chip": @"A10 Fusion", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
         @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"16.4.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
         @{@"name": @"iPhone 8 Plus", @"machine": @"iPhone10,5", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
         @{@"name": @"iPhone X", @"machine": @"iPhone10,6", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
@@ -158,7 +158,7 @@ extern char **environ;
     uname(&systemInfo);
     NSString *machine = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
     if (!machine || ![machine hasPrefix:@"iPhone"]) {
-        return @"iPhone17,2";
+        return @"iPhone9,3";
     }
     return machine;
 }
@@ -183,7 +183,7 @@ extern char **environ;
             return spec;
         }
     }
-    return [self allDeviceSpecs].lastObject; // iPhone 16 Pro Max
+    return [self allDeviceSpecs][3]; // iPhone 7
 }
 
 + (ZTechDeviceProfile *)loadOrCreateDefaultProfile {
@@ -197,17 +197,17 @@ extern char **environ;
     }
     ZTechDeviceProfile *initial = [[ZTechDeviceProfile alloc] init];
     initial.identifier = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
-    initial.modelName = @"iPhone 16 Pro Max";
-    initial.machineId = @"iPhone17,2";
-    initial.iosVersion = @"18.2.1";
-    initial.batteryPercent = 76;
+    initial.modelName = @"iPhone 7";
+    initial.machineId = @"iPhone9,3";
+    initial.iosVersion = @"15.8.4";
+    initial.batteryPercent = 82;
     initial.carrier = @"Viettel";
-    initial.wifiSsid = @"The Coffee House";
+    initial.wifiSsid = @"Viettel_Home_5G";
     initial.city = @"Hà Nội";
-    initial.contactsCount = 42;
-    initial.chipName = @"A18 Pro";
-    initial.ramGB = 8;
-    initial.screenKey = @"440x956";
+    initial.contactsCount = 28;
+    initial.chipName = @"A10 Fusion";
+    initial.ramGB = 2;
+    initial.screenKey = @"375x667";
     initial.activeProxy = @"";
     initial.writtenFilesCount = 7;
     initial.successItemsCount = 10;
@@ -231,10 +231,17 @@ extern char **environ;
 
     if (lockModel) {
         [candidates addObject:realSpec];
-    } else if (modelTier == ZTechModelTierIPhone16) {
-        // User explicitly selected iPhone 16 Series only
+    } else if (modelTier == ZTechModelTierNativeCompatible) {
+        // ⭐ Mode 0: Chuẩn iPhone 7/8/SE (A10/A11) - Khớp 100% phần cứng máy thật
         for (NSDictionary *spec in allSpecs) {
-            if ([spec[@"tier"] integerValue] == 2) {
+            NSString *mach = spec[@"machine"];
+            if ([mach isEqualToString:@"iPhone9,3"] ||
+                [mach isEqualToString:@"iPhone9,1"] ||
+                [mach isEqualToString:@"iPhone9,4"] ||
+                [mach isEqualToString:@"iPhone9,2"] ||
+                [mach isEqualToString:@"iPhone10,4"] ||
+                [mach isEqualToString:@"iPhone10,1"] ||
+                [mach isEqualToString:@"iPhone12,8"]) {
                 [candidates addObject:spec];
             }
         }
@@ -246,33 +253,8 @@ extern char **environ;
             }
         }
     } else {
-        for (NSDictionary *spec in allSpecs) {
-            BOOL ok = YES;
-            if (sameScreen && ![spec[@"screen"] isEqualToString:realScreen] && ![spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
-                ok = NO;
-            }
-            if (matchChip && ![spec[@"ram"] isEqualToNumber:realSpec[@"ram"]]) {
-                ok = NO;
-            }
-            if (ok) {
-                [candidates addObject:spec];
-                // Weight iPhone 15 & iPhone 16 models 2x higher when in "All" mode
-                if ([spec[@"tier"] integerValue] >= 1) {
-                    [candidates addObject:spec];
-                }
-            }
-        }
-        if (candidates.count <= 1 && sameScreen) {
-            [candidates removeAllObjects];
-            for (NSDictionary *spec in allSpecs) {
-                if ([spec[@"screen"] isEqualToString:realScreen] || [spec[@"screen"] isEqualToString:realSpec[@"screen"]]) {
-                    [candidates addObject:spec];
-                }
-            }
-        }
-        if (candidates.count <= 1) {
-            candidates = [allSpecs mutableCopy];
-        }
+        // All models
+        candidates = [allSpecs mutableCopy];
     }
 
     if (!lockModel && prevMachine.length > 0) {
@@ -341,6 +323,7 @@ extern char **environ;
 
 + (void)terminateBackgroundInspectors {
     [ZTechVaultManager killZaloProcess];
+    [ZTechVaultManager seedNaturalVietnameseContactsIfFew];
 }
 
 + (NSString *)storageDirectoryPath {
@@ -623,6 +606,7 @@ extern char **environ;
 
     // Guarantee Zalo, Zalo extensions, AIDA64 and Safari are terminated via kernel sysctl and release SQLite/MMKV locks
     [ZTechVaultManager killZaloProcess];
+    [ZTechVaultManager seedNaturalVietnameseContactsIfFew];
     usleep(250000);
     sync();
     [ZTechVaultManager cleanSafariCookiesAndWebsiteData];
@@ -690,6 +674,7 @@ extern char **environ;
 
     // Guarantee Zalo, Zalo extensions, AIDA64 and Safari are terminated via kernel sysctl and release SQLite/MMKV locks
     [ZTechVaultManager killZaloProcess];
+    [ZTechVaultManager seedNaturalVietnameseContactsIfFew];
     usleep(200000);
     sync();
     [ZTechVaultManager cleanSafariCookiesAndWebsiteData];
