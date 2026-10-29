@@ -364,7 +364,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
         self.currentProfile = [ZTechDeviceDatabase generateProfileWithLockRealModel:NO
                                                                          sameScreen:NO
                                                                           matchChip:NO
-                                                                          modelTier:ZTechModelTierIPhone16
+                                                                          modelTier:ZTechModelTierNativeCompatible
                                                                         currentCity:nil];
     } else {
         self.currentModelTier = (ZTechModelTierFilter)[prefs integerForKey:@"ZTech_ModelTier"];
@@ -1560,7 +1560,7 @@ typedef NS_ENUM(NSInteger, ZTechMainTab) {
 - (void)onTapSelectModelTierSegment:(UIButton *)sender {
     self.currentModelTier = (ZTechModelTierFilter)sender.tag;
     [[NSUserDefaults standardUserDefaults] setInteger:self.currentModelTier forKey:@"ZTech_ModelTier"];
-    if (self.currentModelTier == ZTechModelTierIPhone16 || self.currentModelTier == ZTechModelTierHighEnd) {
+    if (self.currentModelTier == ZTechModelTierHighEnd || self.currentModelTier == ZTechModelTierIPhone16) {
         if (self.lockModelSwitch.isOn || self.sameScreenSwitch.isOn || self.matchChipSwitch.isOn) {
             [self.lockModelSwitch setOn:NO animated:YES];
             [self.sameScreenSwitch setOn:NO animated:YES];

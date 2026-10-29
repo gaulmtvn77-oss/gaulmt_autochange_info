@@ -4,7 +4,8 @@
 typedef NS_ENUM(NSInteger, ZTechModelTierFilter) {
     ZTechModelTierNativeCompatible = 0, // ⭐ Chuẩn iPhone 7/8/SE (A10-A11) - Khớp 100% phần cứng thật
     ZTechModelTierAll = 1,              // Tất cả các đời (iPhone 6s -> 16 Pro Max)
-    ZTechModelTierHighEnd = 2           // Chỉ đời cao (iPhone 14 -> 16 Pro Max)
+    ZTechModelTierHighEnd = 2,          // Chỉ đời cao (iPhone 14 -> 16 Pro Max)
+    ZTechModelTierIPhone16 = 3          // Legacy compatibility
 };
 
 @interface ZTechDeviceProfile : NSObject
