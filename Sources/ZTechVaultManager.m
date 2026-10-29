@@ -1,6 +1,5 @@
 #import "ZTechVaultManager.h"
 #import <UIKit/UIKit.h>
-#import <Contacts/Contacts.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <sys/stat.h>
@@ -1108,17 +1107,26 @@ static void ZTechNativeRecursiveChownAndChmod(const char *cpath, uid_t uid, gid_
 
 + (NSInteger)seedNaturalVietnameseContactsIfFew {
     @try {
-        CNContactStore *store = [[CNContactStore alloc] init];
-        CNContactFetchRequest *fetch = [[CNContactFetchRequest alloc] initWithKeysToFetch:@[CNContactGivenNameKey]];
-        __block NSInteger currentCount = 0;
-        [store enumerateContactsWithFetchRequest:fetch error:nil usingBlock:^(CNContact * _Nonnull contact, BOOL * _Nonnull stop) {
-            currentCount++;
-            if (currentCount >= 20) *stop = YES;
-        }];
+        dlopen("/System/Library/Frameworks/Contacts.framework/Contacts", RTLD_NOW);
+        Class storeCls = NSClassFromString(@"CNContactStore");
+        Class fetchCls = NSClassFromString(@"CNContactFetchRequest");
+        Class contactCls = NSClassFromString(@"CNMutableContact");
+        Class saveCls = NSClassFromString(@"CNSaveRequest");
+        Class phoneCls = NSClassFromString(@"CNPhoneNumber");
+        Class labeledCls = NSClassFromString(@"CNLabeledValue");
+        if (!storeCls || !fetchCls || !contactCls || !saveCls) return 0;
 
-        if (currentCount >= 15) {
-            return currentCount;
+        id store = [[storeCls alloc] init];
+        id fetch = [[fetchCls alloc] initWithKeysToFetch:@[@"givenName"]];
+        __block NSInteger currentCount = 0;
+        SEL enumSel = sel_registerName("enumerateContactsWithFetchRequest:error:usingBlock:");
+        if ([store respondsToSelector:enumSel]) {
+            ((void (*)(id, SEL, id, NSError **, void (^)(id, BOOL *)))objc_msgSend)(store, enumSel, fetch, nil, ^(id contact, BOOL *stop) {
+                currentCount++;
+                if (currentCount >= 20) *stop = YES;
+            });
         }
+        if (currentCount >= 15) return currentCount;
 
         NSArray<NSDictionary *> *naturalNames = @[
             @{@"first": @"Hùng", @"last": @"Nguyễn Văn", @"phone": @"0983124567"},
@@ -1143,19 +1151,21 @@ static void ZTechNativeRecursiveChownAndChmod(const char *cpath, uid_t uid, gid_
             @{@"first": @"Grab Giao Hàng", @"last": @"", @"phone": @"0967890123"}
         ];
 
-        CNSaveRequest *saveReq = [[CNSaveRequest alloc] init];
+        id saveReq = [[saveCls alloc] init];
         NSInteger added = 0;
         for (NSDictionary *d in naturalNames) {
-            CNMutableContact *c = [[CNMutableContact alloc] init];
-            c.givenName = d[@"first"];
-            c.familyName = d[@"last"];
-            CNPhoneNumber *pn = [CNPhoneNumber phoneNumberWithStringValue:d[@"phone"]];
-            CNLabeledValue *val = [CNLabeledValue labeledValueWithLabel:CNLabelPhoneNumberMobile value:pn];
-            c.phoneNumbers = @[val];
-            [saveReq addContact:c toContainerWithIdentifier:nil];
+            id c = [[contactCls alloc] init];
+            [c setValue:d[@"first"] forKey:@"givenName"];
+            [c setValue:d[@"last"] forKey:@"familyName"];
+            if (phoneCls && labeledCls) {
+                id pn = ((id (*)(id, SEL, NSString *))objc_msgSend)(phoneCls, sel_registerName("phoneNumberWithStringValue:"), d[@"phone"]);
+                id val = ((id (*)(id, SEL, id, id))objc_msgSend)(labeledCls, sel_registerName("labeledValueWithLabel:value:"), @"_$!<Mobile>!$_", pn);
+                if (val) [c setValue:@[val] forKey:@"phoneNumbers"];
+            }
+            ((void (*)(id, SEL, id, id))objc_msgSend)(saveReq, sel_registerName("addContact:toContainerWithIdentifier:"), c, nil);
             added++;
         }
-        [store executeSaveRequest:saveReq error:nil];
+        ((BOOL (*)(id, SEL, id, NSError **))objc_msgSend)(store, sel_registerName("executeSaveRequest:error:"), saveReq, nil);
         return (currentCount + added);
     } @catch (NSException *e) {
         return 0;
