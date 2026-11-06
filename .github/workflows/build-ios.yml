@@ -276,7 +276,7 @@ jobs:
           fi
 
           # Preserve existing online customer licenses.json from gh-pages if available
-          if curl -fsSL "https://raw.githubusercontent.com/gaulmt/gaulmt.github.io/gh-pages/licenses.json" -o "$STAGE_DIR/licenses_live.json"; then
+          if curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/licenses.json" -o "$STAGE_DIR/licenses_live.json"; then
             if grep -q '"keys"' "$STAGE_DIR/licenses_live.json"; then
               mv "$STAGE_DIR/licenses_live.json" "$STAGE_DIR/licenses.json"
             else
