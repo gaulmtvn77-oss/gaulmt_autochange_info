@@ -1,7 +1,7 @@
 {
   "minVersion": "0.1",
   "class": "DepictionTabView",
-  "headerImage": "https://gaulmt.github.io/icons/now_event.png",
+  "headerImage": "https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/icons/now_event.png",
   "tabs": [
     {
       "tabname": "Chi tiết",

@@ -7,6 +7,6 @@ Maintainer: quang lam marketing
 Author: quang lam marketing
 Section: Utilities
 Depends: firmware (>= 12.0), mobilesubstrate
-Icon: https://gaulmt.github.io/CydiaIcon@3x.png
-Depiction: https://gaulmt.github.io/depictions/com.ztech.changeinfo.json
-SileoDepiction: https://gaulmt.github.io/depictions/com.ztech.changeinfo.json
+Icon: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/CydiaIcon@3x.png
+Depiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depictions/com.ztech.changeinfo.json
+SileoDepiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depictions/com.ztech.changeinfo.json

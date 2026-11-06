@@ -16,11 +16,9 @@ def generate_release(stage_dir):
 
     header = """Origin: gaulmt Official Sileo Repo
 Label: gaulmt Repo
-Suite: stable
-Version: 1.0
-Codename: ios
+Suite: ./
+Codename: ./
 Architectures: iphoneos-arm iphoneos-arm64 iphoneos-arm64e
-Components: main
 Description: Kho ung dung, tweak & san pham gaulmt tren Sileo & Zebra
 """
 
