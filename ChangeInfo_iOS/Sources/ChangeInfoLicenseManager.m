@@ -178,7 +178,13 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
                         hwid:(NSString *)hwid
              isFreshActivate:(BOOL)isFresh
                   completion:(ChangeInfoLicenseVerifyCompletion)completion {
-    BOOL active = [entry[@"active"] boolValue];
+    BOOL active = YES;
+    if (entry[@"active"] != nil) {
+        active = [entry[@"active"] boolValue];
+    } else if (entry[@"status"] != nil) {
+        active = [entry[@"status"] isEqualToString:@"active"];
+    }
+
     if (!active) {
         [self clearSavedLicense];
         if (completion) completion(NO, @"Key bản quyền này đã bị khoá hoặc thu hồi bởi Quản trị viên.", nil, nil);
@@ -186,7 +192,7 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
     }
 
     // Expiry check
-    NSString *expiryStr = entry[@"expiry"] ?: @"2099-12-31";
+    NSString *expiryStr = entry[@"expiry"] ?: entry[@"expires"] ?: @"2099-12-31";
     NSDateFormatter *df = [[NSDateFormatter alloc] init];
     df.dateFormat = @"yyyy-MM-dd";
     NSDate *expDate = [df dateFromString:expiryStr];
@@ -212,7 +218,7 @@ static NSString * const kRedisPendingHashKey  = @"ztech:pending_devices";
         return;
     }
 
-    if ([boundHwid isEqualToString:hwid]) {
+    if ([boundHwid isEqualToString:@"*"] || [boundHwid isEqualToString:hwid]) {
         [self saveActiveLicense:key owner:owner expiry:expiryStr];
         if (completion) completion(YES, [NSString stringWithFormat:@"Xác thực thành công! Xin chào %@.", owner], owner, expiryStr);
     } else {
