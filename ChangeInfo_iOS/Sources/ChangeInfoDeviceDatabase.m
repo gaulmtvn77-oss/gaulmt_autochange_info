@@ -3,6 +3,7 @@
 #import <sys/stat.h>
 #import <spawn.h>
 #import <notify.h>
+#import <stdlib.h>
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
