@@ -1,0 +1,37 @@
+{
+  "minVersion": "0.1",
+  "class": "DepictionTabView",
+  "headerImage": "https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/CydiaIcon@3x.png",
+  "tabs": [
+    {
+      "tabname": "Chi tiết",
+      "class": "DepictionStackView",
+      "views": [
+        {
+          "class": "DepictionSubheaderView",
+          "useBoldText": true,
+          "title": "quang lam marketing v5.8.12 - Cấu Trúc Kháng Crash & Ẩn Jailbreak Chuẩn Xác"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "Bản phát hành đặc biệt **quang lam marketing v5.8.12**:\n\n- **Ổn Định Tuyệt Đối & Triệt Tiêu Lỗi Crash (Rock-Solid Anti-Crash Architecture)**:\n  + Loại bỏ hoàn toàn các hook POSIX thô bạo (`open`, `fopen`, `statfs`) gây lỗi cấp phép ghi bộ nhớ đệm (EPERM) cho SQLite/WCDB của Zalo.\n  + Khử triệt để hook `dladdr` và `dlsym`/`dlopen` tránh xung đột khóa mutex của dyld4 trên iOS 15 rootless.\n  + Đưa toàn bộ các bộ lọc `NSFileManager` và `canOpenURL:` vào riêng biệt tiến trình Zalo, bảo vệ 100% độ ổn định của SpringBoard và hệ thống.\n- **Lá Chắn Tàng Hình Jailbreak Tinh Gọn (Safe Jailbreak Cloaking)**:\n  + Chặn quét đường dẫn Jailbreak qua `access`, `stat`, `lstat` và `[NSFileManager fileExistsAtPath:]`.\n  + Ẩn tên dylib can thiệp qua `_dyld_get_image_name` và vô hiệu hoá lệnh `fork()`.\n- **Đồng bộ phần cứng & Tự động chứng thực Proxy không rò rỉ header**."
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Nhà phát triển",
+          "text": "quang lam marketing"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Phiên bản",
+          "text": "5.8.12"
+        },
+        {
+          "class": "DepictionTableTextView",
+          "title": "Môi trường",
+          "text": "Rootless (Dopamine / palera1n)"
+        }
+      ]
+    }
+  ]
+}

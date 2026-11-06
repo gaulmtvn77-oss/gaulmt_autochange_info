@@ -1,0 +1,112 @@
+Package: com.gaulmt.noweventnotification
+Version: 2.1.0
+Architecture: iphoneos-arm
+Maintainer: gaulmt <lmtgau@gmail.com>
+Depends: firmware (>= 14.0)
+Filename: debs/com.gaulmt.noweventnotification_2.1.0_iphoneos-arm.deb
+Size: 410052
+MD5sum: 325d9ca7dec52fd81f5cb6d86805e016
+SHA1: caeb151fde428ddaffd5533030ddc77f6f499c42
+SHA256: e6e7173c6c41b3858e98e4b6bcedf3969a65b66e25048a7348668c7e6c7d1c04
+Section: Utilities
+Description: Ung dung theo doi su kien & thong bao Doan Thanh nien IUH tuc thi cho sinh vien.
+Author: Nguyen Dang Duong & Le Phuoc Tai
+Depiction: https://gaulmt.github.io/
+Icon: https://gaulmt.github.io/icons/now_event.png
+Name: Now Event Notification (IUH)
+Sileodepiction: https://gaulmt.github.io/depictions/com.gaulmt.noweventnotification.json
+
+Package: com.gaulmt.noweventnotification.rootless
+Version: 2.1.0
+Architecture: iphoneos-arm64
+Maintainer: gaulmt <lmtgau@gmail.com>
+Depends: firmware (>= 14.0), ellekit
+Filename: debs/com.gaulmt.noweventnotification.rootless_2.1.0_iphoneos-arm64.deb
+Size: 410134
+MD5sum: 21c8b37f1d3aba51702e5ebb919d779c
+SHA1: 39074af78d681d2630045fd554429f8b2138ab94
+SHA256: c9bd59806199e9b71c7529280c797a58489c256c418aa85b51094a8b2bc65254
+Section: Utilities
+Description: Ung dung theo doi su kien & thong bao Doan Thanh nien IUH tuc thi cho sinh vien.
+Author: Nguyen Dang Duong & Le Phuoc Tai
+Depiction: https://gaulmt.github.io/
+Icon: https://gaulmt.github.io/icons/now_event.png
+Name: Now Event Notification (Rootless)
+Sileodepiction: https://gaulmt.github.io/depictions/com.gaulmt.noweventnotification.rootless.json
+
+Package: com.ztech.changeinfo
+Version: 1.0.0
+Architecture: iphoneos-arm
+Maintainer: quang lam marketing
+Installed-Size: 796
+Depends: firmware (>= 12.0), mobilesubstrate
+Filename: debs/com.ztech.changeinfo_1.0.0_iphoneos-arm.deb
+Size: 117998
+MD5sum: 2ae6cb9755791cfd411f6bd643509de1
+SHA1: 8dbdf2b2d2ebe3e38864c53481e6e337877d68b7
+SHA256: 7f668417549054e03ff74ee57a2b076d79e6c0af8be52181713b28c4b90d840d
+Section: Utilities
+Description: change info - Elite Device Identity & Hardware Spoofing (1:1 Replica Edition)
+Author: quang lam marketing
+Depiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depictions/com.ztech.changeinfo.json
+Icon: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/CydiaIcon@3x.png
+Name: change info
+Sileodepiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depictions/com.ztech.changeinfo.json
+
+Package: com.ztech.changeinfo.rootless
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Maintainer: quang lam marketing
+Installed-Size: 796
+Depends: firmware (>= 12.0), ellekit
+Filename: debs/com.ztech.changeinfo.rootless_1.0.0_iphoneos-arm64.deb
+Size: 116984
+MD5sum: 15bd6881cbe64851a1f96f6ec6f79bac
+SHA1: dc79de5a558c872243d34c6353224453c3a38e07
+SHA256: 10615b387e2fbdee623ab23756265a5b3074e186a6ea355000f83bd4d71e556d
+Section: Utilities
+Description: change info - Elite Device Identity & Hardware Spoofing (1:1 Replica Edition)
+Author: quang lam marketing
+Depiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depictions/com.ztech.changeinfo.rootless.json
+Icon: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/CydiaIcon@3x.png
+Name: change info (Rootless)
+Sileodepiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depictions/com.ztech.changeinfo.rootless.json
+
+Package: com.ztech.devicechanger
+Version: 5.8.16
+Architecture: iphoneos-arm
+Maintainer: quang lam marketing
+Installed-Size: 1232
+Depends: firmware (>= 12.0), mobilesubstrate
+Filename: debs/com.ztech.devicechanger_5.8.16_iphoneos-arm.deb
+Size: 212914
+MD5sum: 1cd7d235d57f88cb754c463b1535925d
+SHA1: 85264f62c120903243d93d6155a812f359508732
+SHA256: 366cc0e244d803e316ece42f70937940b400d295eea83be785eaf6723fb633a8
+Section: Utilities
+Description: quang lam marketing v5.8.16 - Native iPhone 7/8 Hardware Alignment (100% Reg Survival), Auto Contact Seeding & Deep Isolate
+Author: quang lam marketing
+Depiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/
+Icon: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/CydiaIcon@3x.png
+Name: quang lam marketing
+Sileodepiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depiction.json
+
+Package: com.ztech.devicechanger.rootless
+Version: 5.8.16
+Architecture: iphoneos-arm64
+Maintainer: quang lam marketing
+Installed-Size: 1232
+Depends: firmware (>= 12.0), ellekit
+Filename: debs/com.ztech.devicechanger.rootless_5.8.16_iphoneos-arm64.deb
+Size: 213214
+MD5sum: c20ef6ced2a0b73b94505fd44c67f3ed
+SHA1: de218ee85af05c53bd54abfc45b311d595635d88
+SHA256: 2db739b4116da0e6a06a2e26601c80ec553e8fa7dd8941a6e2c8716393c2212b
+Section: Utilities
+Description: quang lam marketing v5.8.16 - Native iPhone 7/8 Hardware Alignment (100% Reg Survival), Auto Contact Seeding & Deep Isolate
+Author: quang lam marketing
+Depiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/
+Icon: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/CydiaIcon@3x.png
+Name: quang lam marketing (Rootless)
+Sileodepiction: https://gaulmtvn77-oss.github.io/gaulmt_autochange_info/depiction.json
+
