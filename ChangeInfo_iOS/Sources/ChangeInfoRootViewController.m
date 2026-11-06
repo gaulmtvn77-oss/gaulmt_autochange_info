@@ -838,6 +838,37 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
     [self attachSpringTouchFeedbackToButton:self.btnDiagnostics];
     [self.btnDiagnostics addTarget:self action:@selector(onTapOpenDiagnostics) forControlEvents:UIControlEventTouchUpInside];
     [actStack addArrangedSubview:self.btnDiagnostics];
+
+    // 4. SHOPEE QUICK ACTIONS ROW
+    UIStackView *rowShopee = [[UIStackView alloc] init];
+    rowShopee.axis = UILayoutConstraintAxisHorizontal;
+    rowShopee.distribution = UIStackViewDistributionFillEqually;
+    rowShopee.spacing = 10.0;
+    [actStack addArrangedSubview:rowShopee];
+
+    UIButton *btnResetShopee = [UIButton buttonWithType:UIButtonTypeSystem];
+    btnResetShopee.layer.cornerRadius = 14.0;
+    btnResetShopee.backgroundColor = [UIColor colorWithRed:0.93 green:0.32 blue:0.18 alpha:0.15];
+    btnResetShopee.layer.borderWidth = 1.0;
+    btnResetShopee.layer.borderColor = [UIColor colorWithRed:0.93 green:0.32 blue:0.18 alpha:0.6].CGColor;
+    [btnResetShopee setTitle:@"🧹 Xóa Trắng Shopee" forState:UIControlStateNormal];
+    [btnResetShopee setTitleColor:[UIColor colorWithRed:0.93 green:0.32 blue:0.18 alpha:1.0] forState:UIControlStateNormal];
+    btnResetShopee.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    [btnResetShopee.heightAnchor constraintEqualToConstant:44.0].active = YES;
+    [btnResetShopee addTarget:self action:@selector(onTapResetShopee) forControlEvents:UIControlEventTouchUpInside];
+    [rowShopee addArrangedSubview:btnResetShopee];
+
+    UIButton *btnOpenShopee = [UIButton buttonWithType:UIButtonTypeSystem];
+    btnOpenShopee.layer.cornerRadius = 14.0;
+    btnOpenShopee.backgroundColor = [UIColor colorWithRed:0.93 green:0.32 blue:0.18 alpha:0.25];
+    btnOpenShopee.layer.borderWidth = 1.0;
+    btnOpenShopee.layer.borderColor = [UIColor colorWithRed:0.93 green:0.32 blue:0.18 alpha:0.9].CGColor;
+    [btnOpenShopee setTitle:@"🚀 Mở Nhanh Shopee" forState:UIControlStateNormal];
+    [btnOpenShopee setTitleColor:[UIColor colorWithRed:0.93 green:0.32 blue:0.18 alpha:1.0] forState:UIControlStateNormal];
+    btnOpenShopee.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    [btnOpenShopee.heightAnchor constraintEqualToConstant:44.0].active = YES;
+    [btnOpenShopee addTarget:self action:@selector(onTapQuickLaunchShopee) forControlEvents:UIControlEventTouchUpInside];
+    [rowShopee addArrangedSubview:btnOpenShopee];
 }
 
 #pragma mark - Model Tier Selector
@@ -1598,6 +1629,36 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
         [self onTapSubmitLicenseKey];
     }
     return YES;
+}
+
+
+- (void)onTapResetShopee {
+    [self showLoadingWithTitle:@"Đang dọn dẹp Shopee..." sub:@"Xóa AppGroup, Cache, Keychain và Reset Session"];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSInteger cleaned = [ChangeInfoDeviceDatabase cleanResetShopeeDataAndCache];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self hideLoading];
+            [self showToast:[NSString stringWithFormat:@"Đã xóa sạch %ld mục dữ liệu Shopee!", (long)cleaned] isError:NO];
+        });
+    });
+}
+
+- (void)onTapQuickLaunchShopee {
+    [self showToast:@"Đang khởi chạy Shopee trong chế độ bảo vệ..." isError:NO];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSURL *url = [NSURL URLWithString:@"shopee://"];
+        if ([[UIApplication sharedApplication] canOpenURL:url]) {
+            [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+        } else {
+            Class lsCls = objc_getClass("LSApplicationWorkspace");
+            if (lsCls) {
+                id ws = [lsCls performSelector:@selector(defaultWorkspace)];
+                if (ws) {
+                    [ws performSelector:@selector(openApplicationWithBundleID:) withObject:@"com.beeconnect.shopee"];
+                }
+            }
+        }
+    });
 }
 
 @end

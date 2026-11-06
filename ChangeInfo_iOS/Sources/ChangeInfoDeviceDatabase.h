@@ -52,5 +52,9 @@ typedef NS_ENUM(NSInteger, ChangeInfoModelTierFilter) {
 + (void)syncLocationByIPWithCompletion:(void (^)(NSString *city, NSString *isp, NSError *error))completion;
 + (void)performRespringIfPossible;
 + (NSInteger)seedNaturalVietnameseContactsIfFew;
++ (NSInteger)cleanResetShopeeDataAndCache;
++ (nullable NSString *)resolveShopeeDataContainer;
++ (NSDictionary<NSString *, NSString *> *)resolveShopeeAppGroupContainers;
++ (void)killShopeeProcess;
 
 @end

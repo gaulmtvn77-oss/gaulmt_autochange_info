@@ -1,3 +1,33 @@
+#ifndef CS_OPS_STATUS
+#define CS_OPS_STATUS 0
+#endif
+#ifndef CS_VALID
+#define CS_VALID 0x00000001
+#endif
+#ifndef CS_HARD
+#define CS_HARD 0x00000100
+#endif
+#ifndef CS_KILL
+#define CS_KILL 0x00000200
+#endif
+#ifndef CS_DEBUGGED
+#define CS_DEBUGGED 0x10000000
+#endif
+
+typedef int (*ci_csops_t)(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+static ci_csops_t orig_csops = NULL;
+static int hooked_csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize) {
+    int ret = orig_csops ? orig_csops(pid, ops, useraddr, usersize) : -1;
+    if (ret == 0 && ops == CS_OPS_STATUS && useraddr != NULL && usersize >= sizeof(uint32_t)) {
+        uint32_t *pStatus = (uint32_t *)useraddr;
+        *pStatus |= (CS_VALID | CS_HARD | CS_KILL);
+        *pStatus &= ~CS_DEBUGGED;
+    }
+    return ret;
+}
+
+#import <net/if_dl.h>
+
 
 __attribute__((visibility("default"))) int gChangeInfoHookActive = 1;
 
@@ -2130,7 +2160,7 @@ static void ChangeInfoPerformKeychainPurgeIfNeeded(void) {
     dispatch_once(&sKeychainSyncOnceToken, ^{
         @try {
             const char *homeC = getenv("HOME");
-            if (!homeC || homeC[0] == ' ') return;
+            if (!homeC || homeC[0] == '0') return;
             NSString *home = [NSString stringWithUTF8String:homeC];
             if (home.length == 0) return;
 
@@ -2202,6 +2232,71 @@ static OSStatus hook_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *resul
 }
 
 __attribute__((constructor))
+
+static void *(*orig_dlopen)(const char *path, int mode) = NULL;
+static void *hooked_dlopen(const char *path, int mode) {
+    if (path) {
+        if (strstr(path, "ElleKit") || strstr(path, "Substrate") || strstr(path, "CydiaSubstrate") ||
+            strstr(path, "libhooker") || strstr(path, "tweak") || strstr(path, "MobileSubstrate")) {
+            errno = ENOENT;
+            return NULL;
+        }
+    }
+    return orig_dlopen ? orig_dlopen(path, mode) : dlopen(path, mode);
+}
+
+static void *(*orig_dlsym)(void *handle, const char *symbol) = NULL;
+static void *hooked_dlsym(void *handle, const char *symbol) {
+    if (symbol) {
+        if (strstr(symbol, "MSHook") || strstr(symbol, "LHHook") || strstr(symbol, "substitute_") ||
+            strstr(symbol, "ellekit") || strstr(symbol, "ChangeInfoHook") || strstr(symbol, "ZTechHook")) {
+            return NULL;
+        }
+    }
+    return orig_dlsym ? orig_dlsym(handle, symbol) : dlsym(handle, symbol);
+}
+
+static int (*orig_getifaddrs)(struct ifaddrs **) = NULL;
+static int hooked_getifaddrs(struct ifaddrs **ifap) {
+    int ret = orig_getifaddrs ? orig_getifaddrs(ifap) : getifaddrs(ifap);
+    if (ret == 0 && ifap && *ifap) {
+        struct ifaddrs *prev = NULL;
+        struct ifaddrs *curr = *ifap;
+        while (curr) {
+            BOOL remove = NO;
+            if (curr->ifa_name) {
+                if (strncmp(curr->ifa_name, "utun", 4) == 0 ||
+                    strncmp(curr->ifa_name, "tun", 3) == 0 ||
+                    strncmp(curr->ifa_name, "ppp", 3) == 0 ||
+                    strncmp(curr->ifa_name, "tap", 3) == 0 ||
+                    strncmp(curr->ifa_name, "ipsec", 5) == 0) {
+                    remove = YES;
+                }
+            }
+            if (remove) {
+                if (prev) {
+                    prev->ifa_next = curr->ifa_next;
+                } else {
+                    *ifap = curr->ifa_next;
+                }
+                curr = curr->ifa_next;
+            } else {
+                if (curr->ifa_addr && curr->ifa_addr->sa_family == AF_LINK) {
+                    struct sockaddr_dl *sdl = (struct sockaddr_dl *)curr->ifa_addr;
+                    if (sdl->sdl_alen == 6) {
+                        unsigned char *mac = (unsigned char *)LLADDR(sdl);
+                        mac[0] = 0x02; mac[1] = 0x00; mac[2] = 0x00;
+                        mac[3] = 0x00; mac[4] = 0x00; mac[5] = 0x00;
+                    }
+                }
+                prev = curr;
+                curr = curr->ifa_next;
+            }
+        }
+    }
+    return ret;
+}
+
 static void ChangeInfoHookInit(void) {
     if (dlsym(RTLD_DEFAULT, "gZTechHookActiveFlag") != NULL) {
         // quang lam marketing tweak is already active in this process; yield to prevent duplicate hooking
@@ -2293,7 +2388,10 @@ static void ChangeInfoHookInit(void) {
                       (bundleId && [bundleId localizedCaseInsensitiveContainsString:@"zingalo"]) ||
                       (procName && [procName localizedCaseInsensitiveContainsString:@"zingalo"]);
 
-        if (!isAida && !isZalo) {
+        BOOL isShopee = (bundleId && ([bundleId localizedCaseInsensitiveContainsString:@"shopee"] || [bundleId localizedCaseInsensitiveContainsString:@"beeconnect"])) ||
+                        (procName && [procName localizedCaseInsensitiveContainsString:@"shopee"]);
+
+        if (!isAida && !isZalo && !isShopee) {
             return;
         }
 
@@ -2358,7 +2456,7 @@ static void ChangeInfoHookInit(void) {
         ZTechHookTrace([[NSString stringWithFormat:@"[2/6] Profile loaded: model=%@, id=%@, ios=%@, uuid=%@",
                          gModelNameObj, gMachineIdObj, gIosVersionObj, gUuidObj] UTF8String]);
 
-                if (isZalo) {
+                if (isZalo || isShopee) {
             // Swizzle +[NSUbiquitousKeyValueStore defaultStore] to return in-memory stub
             // Eliminates SyncedDefaults (SYDRemotePreferencesSource) EXC_GUARD fault & blocks iCloud KVS tracking
             @try {
@@ -2634,7 +2732,7 @@ static void ChangeInfoHookInit(void) {
                 pMSHook(raw_getifaddrs, (void *)hooked_getifaddrs, (void **)&orig_getifaddrs);
             }
 
-            if (isZalo) {
+            if (isZalo || isShopee) {
                 // Swizzle NSFileManager fileExistsAtPath: inside Zalo only
                 Class fmCls = objc_getClass("NSFileManager");
                 if (fmCls) {
@@ -2668,6 +2766,18 @@ static void ChangeInfoHookInit(void) {
                 // Anti-detection: Rock-solid C-level hooks for Zalo
                 void *raw_access = dlsym(RTLD_DEFAULT, "access");
                 if (raw_access) pMSHook(raw_access, (void *)hooked_access, (void **)&orig_access);
+
+                void *raw_csops = dlsym(RTLD_DEFAULT, "csops");
+                if (raw_csops) pMSHook(raw_csops, (void *)hooked_csops, (void **)&orig_csops);
+
+                void *raw_dlopen = dlsym(RTLD_DEFAULT, "dlopen");
+                if (raw_dlopen) pMSHook(raw_dlopen, (void *)hooked_dlopen, (void **)&orig_dlopen);
+
+                void *raw_dlsym = dlsym(RTLD_DEFAULT, "dlsym");
+                if (raw_dlsym) pMSHook(raw_dlsym, (void *)hooked_dlsym, (void **)&orig_dlsym);
+
+                void *raw_getifaddrs = dlsym(RTLD_DEFAULT, "getifaddrs");
+                if (raw_getifaddrs) pMSHook(raw_getifaddrs, (void *)hooked_getifaddrs, (void **)&orig_getifaddrs);
 
                 void *raw_stat = dlsym(RTLD_DEFAULT, "stat");
                 if (raw_stat) pMSHook(raw_stat, (void *)hooked_stat, (void **)&orig_stat);
@@ -2751,7 +2861,7 @@ static void ChangeInfoHookInit(void) {
             } @catch (NSException *e) {}
 
             // In Zalo, filter clipboard queries to prevent proxy / tweak string spying
-            if (isZalo) {
+            if (isZalo || isShopee) {
                 @try {
                     Class pbCls = objc_getClass("UIPasteboard");
                     if (pbCls) {

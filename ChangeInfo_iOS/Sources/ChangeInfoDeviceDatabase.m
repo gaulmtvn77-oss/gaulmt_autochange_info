@@ -484,4 +484,123 @@ extern char **environ;
     return 0;
 }
 
+
++ (nullable NSString *)resolveShopeeDataContainer {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *basePaths = @[
+        @"/var/mobile/Containers/Data/Application",
+        @"/private/var/mobile/Containers/Data/Application"
+    ];
+    for (NSString *base in basePaths) {
+        if (![fm fileExistsAtPath:base]) continue;
+        NSArray *subdirs = [fm contentsOfDirectoryAtPath:base error:nil];
+        for (NSString *uuid in subdirs) {
+            NSString *meta = [base stringByAppendingPathComponent:[NSString stringWithFormat:@"%@/.com.apple.mobile_container_manager.metadata.plist", uuid]];
+            if ([fm fileExistsAtPath:meta]) {
+                NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:meta];
+                NSString *ident = d[@"MCMMetadataIdentifier"];
+                if ([ident isEqualToString:@"com.beeconnect.shopee"] || [ident isEqualToString:@"com.shopee.vn"]) {
+                    return [base stringByAppendingPathComponent:uuid];
+                }
+            }
+        }
+    }
+    return nil;
+}
+
++ (NSDictionary<NSString *, NSString *> *)resolveShopeeAppGroupContainers {
+    NSMutableDictionary<NSString *, NSString *> *groups = [NSMutableDictionary dictionary];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *groupBases = @[
+        @"/var/mobile/Containers/Shared/AppGroup",
+        @"/private/var/mobile/Containers/Shared/AppGroup"
+    ];
+    for (NSString *base in groupBases) {
+        if (![fm fileExistsAtPath:base]) continue;
+        NSArray *subdirs = [fm contentsOfDirectoryAtPath:base error:nil];
+        for (NSString *uuid in subdirs) {
+            NSString *meta = [base stringByAppendingPathComponent:[NSString stringWithFormat:@"%@/.com.apple.mobile_container_manager.metadata.plist", uuid]];
+            if ([fm fileExistsAtPath:meta]) {
+                NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:meta];
+                NSString *ident = d[@"MCMMetadataIdentifier"];
+                if (ident.length > 0 && [ident containsString:@"shopee"]) {
+                    groups[ident] = [base stringByAppendingPathComponent:uuid];
+                }
+            }
+        }
+    }
+    return groups;
+}
+
++ (void)killShopeeProcess {
+    const char *cmds[] = {
+        "/var/jb/usr/bin/killall -9 Shopee",
+        "/usr/bin/killall -9 Shopee",
+        "/var/jb/bin/killall -9 Shopee",
+        "killall -9 Shopee",
+        "killall -9 shopee"
+    };
+    typedef int (*ci_sys_t)(const char *);
+    ci_sys_t dyn_sys = (ci_sys_t)dlsym(RTLD_DEFAULT, "system");
+    if (dyn_sys) {
+        for (int i = 0; i < 5; i++) {
+            dyn_sys(cmds[i]);
+        }
+    }
+}
+
++ (NSInteger)cleanResetShopeeDataAndCache {
+    NSInteger cleanedItems = 0;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [self killShopeeProcess];
+    usleep(120000);
+
+    @try {
+        UIPasteboard *pb = [UIPasteboard generalPasteboard];
+        [pb setItems:@[]];
+    } @catch (NSException *e) {}
+
+    NSMutableSet<NSString *> *shopeeContainers = [NSMutableSet set];
+    NSString *mainShopee = [self resolveShopeeDataContainer];
+    if (mainShopee.length > 0) [shopeeContainers addObject:mainShopee];
+
+    NSDictionary<NSString *, NSString *> *groups = [self resolveShopeeAppGroupContainers];
+    for (NSString *gPath in groups.allValues) {
+        if (gPath.length > 0) [shopeeContainers addObject:gPath];
+    }
+
+    for (NSString *cPath in shopeeContainers) {
+        chmod([cPath UTF8String], 0777);
+        NSArray<NSString *> *subDirs = @[@"Documents", @"tmp", @"Library/Caches", @"Library/Cookies",
+                                         @"Library/Preferences", @"Library/WebKit", @"Library/Application Support",
+                                         @"Library/SplashBoard", @"Library/HTTPStorages", @"Library/Saved Application State"];
+        for (NSString *sub in subDirs) {
+            NSString *targetSub = [cPath stringByAppendingPathComponent:sub];
+            if ([fm fileExistsAtPath:targetSub]) {
+                chmod([targetSub UTF8String], 0777);
+                NSArray *items = [fm contentsOfDirectoryAtPath:targetSub error:nil];
+                for (NSString *it in items) {
+                    if ([it isEqualToString:@".com.apple.mobile_container_manager.metadata.plist"] ||
+                        [it isEqualToString:@"_zt_active_profile.plist"] ||
+                        [it isEqualToString:@"com.ztech.profile.plist"]) continue;
+                    NSString *p = [targetSub stringByAppendingPathComponent:it];
+                    [fm removeItemAtPath:p error:nil];
+                    cleanedItems++;
+                }
+            }
+        }
+        if ([cPath containsString:@"/Shared/AppGroup/"]) {
+            NSArray *items = [fm contentsOfDirectoryAtPath:cPath error:nil];
+            for (NSString *it in items) {
+                if ([it isEqualToString:@".com.apple.mobile_container_manager.metadata.plist"]) continue;
+                NSString *p = [cPath stringByAppendingPathComponent:it];
+                [fm removeItemAtPath:p error:nil];
+                cleanedItems++;
+            }
+        }
+    }
+    sync();
+    return cleanedItems;
+}
+
 @end
