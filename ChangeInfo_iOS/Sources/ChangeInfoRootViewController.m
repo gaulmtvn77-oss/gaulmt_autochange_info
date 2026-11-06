@@ -1328,24 +1328,34 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 
     [self showLoadingWithTitle:@"Đang khởi tạo cấu hình..." sub:@"Ghi thông số phần cứng & dylib hooks"];
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        BOOL lock = self.lockModelSwitch.isOn;
-        BOOL sameSc = self.sameScreenSwitch.isOn;
-        BOOL matchC = self.matchChipSwitch.isOn;
+    // Capture all UIKit properties on the MAIN thread before entering background queue
+    BOOL lock = self.lockModelSwitch ? self.lockModelSwitch.isOn : NO;
+    BOOL sameSc = self.sameScreenSwitch ? self.sameScreenSwitch.isOn : NO;
+    BOOL matchC = self.matchChipSwitch ? self.matchChipSwitch.isOn : NO;
+    ChangeInfoModelTierFilter tier = self.currentModelTier;
 
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         ChangeInfoDeviceProfile *prof = [ChangeInfoDeviceDatabase generateProfileWithLockRealModel:lock
                                                                                         sameScreen:sameSc
                                                                                          matchChip:matchC
-                                                                                         modelTier:self.currentModelTier
+                                                                                         modelTier:tier
                                                                                        currentCity:nil];
-        [ChangeInfoDeviceDatabase writeProfileFiles:prof error:nil];
-        [ChangeInfoDeviceDatabase seedNaturalVietnameseContactsIfFew];
+        if (prof) {
+            [ChangeInfoDeviceDatabase writeProfileFiles:prof error:nil];
+            [ChangeInfoDeviceDatabase seedNaturalVietnameseContactsIfFew];
+        }
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.currentProfile = prof;
-            [self refreshUIWithCurrentProfile];
+            if (prof) {
+                self.currentProfile = prof;
+                [self refreshUIWithCurrentProfile];
+            }
             [self hideLoading];
-            [self showToast:[NSString stringWithFormat:@"Đã đổi sang %@ (%@) thành công!", prof.modelName, prof.machineId] isError:NO];
+            if (prof) {
+                [self showToast:[NSString stringWithFormat:@"Đã đổi sang %@ (%@) thành công!", prof.modelName, prof.machineId] isError:NO];
+            } else {
+                [self showToast:@"Không thể tạo cấu hình mới, vui lòng thử lại." isError:YES];
+            }
         });
     });
 }
@@ -1560,9 +1570,14 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 }
 
 - (void)btnTouchDown:(UIButton *)btn {
-    if (@available(iOS 10.0, *)) {
-        UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-        [gen impactOccurred];
+    @try {
+        if (@available(iOS 10.0, *)) {
+            UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+            [gen prepare];
+            [gen impactOccurred];
+        }
+    } @catch (id ex) {
+        // Haptic feedback failure should never crash the application (e.g. system haptics off or tweak hooks)
     }
     [UIView animateWithDuration:0.12 animations:^{
         btn.transform = CGAffineTransformMakeScale(0.96, 0.96);
@@ -1570,9 +1585,11 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 }
 
 - (void)btnTouchUp:(UIButton *)btn {
-    [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
-        btn.transform = CGAffineTransformIdentity;
-    } completion:nil];
+    @try {
+        [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            btn.transform = CGAffineTransformIdentity;
+        } completion:nil];
+    } @catch (id ex) {}
 }
 
 #pragma mark - Keyboard Handling & TextField Delegate

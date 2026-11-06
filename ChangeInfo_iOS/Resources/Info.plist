@@ -51,5 +51,7 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>NSContactsUsageDescription</key>
+	<string>Ứng dụng cần quyền danh bạ để tạo danh bạ tự nhiên khi đổi cấu hình máy.</string>
 </dict>
 </plist>

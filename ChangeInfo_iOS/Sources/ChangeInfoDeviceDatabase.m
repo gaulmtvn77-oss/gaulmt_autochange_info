@@ -118,8 +118,11 @@ extern char **environ;
         @{@"name": @"iPhone SE (1st Gen)", @"machine": @"iPhone8,4", @"chip": @"A9", @"ram": @2, @"screen": @"320x568", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
         @{@"name": @"iPhone 7", @"machine": @"iPhone9,3", @"chip": @"A10 Fusion", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
         @{@"name": @"iPhone 7 Plus", @"machine": @"iPhone9,4", @"chip": @"A10 Fusion", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"15.8.4", @"15.8.3", @"15.8.2"]},
+        @{@"name": @"iPhone 8", @"machine": @"iPhone10,1", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"16.4.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
         @{@"name": @"iPhone 8", @"machine": @"iPhone10,4", @"chip": @"A11 Bionic", @"ram": @2, @"screen": @"375x667", @"tier": @0, @"ios": @[@"16.4.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone 8 Plus", @"machine": @"iPhone10,2", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
         @{@"name": @"iPhone 8 Plus", @"machine": @"iPhone10,5", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"414x736", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
+        @{@"name": @"iPhone X", @"machine": @"iPhone10,3", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
         @{@"name": @"iPhone X", @"machine": @"iPhone10,6", @"chip": @"A11 Bionic", @"ram": @3, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"16.7.5", @"16.7.8"]},
         @{@"name": @"iPhone XR", @"machine": @"iPhone11,8", @"chip": @"A12 Bionic", @"ram": @3, @"screen": @"414x896", @"tier": @0, @"ios": @[@"16.5.1", @"16.6.1", @"17.1.2", @"17.4.1"]},
         @{@"name": @"iPhone XS", @"machine": @"iPhone11,2", @"chip": @"A12 Bionic", @"ram": @4, @"screen": @"375x812", @"tier": @0, @"ios": @[@"16.6.1", @"17.1.2", @"17.4.1", @"17.6.1"]},
@@ -230,17 +233,21 @@ extern char **environ;
     NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
 
     if (lockModel) {
-        [candidates addObject:realSpec];
+        if (realSpec) [candidates addObject:realSpec];
     } else if (modelTier == ChangeInfoModelTierNativeCompatible) {
-        // ⭐ Mode 0: Chuẩn iPhone 7/8/SE (A10/A11)
+        // ⭐ Mode 0: Chuẩn iPhone 7/8/SE/X (A10/A11)
         for (NSDictionary *spec in allSpecs) {
             NSString *mach = spec[@"machine"];
             if ([mach isEqualToString:@"iPhone9,3"] ||
                 [mach isEqualToString:@"iPhone9,1"] ||
                 [mach isEqualToString:@"iPhone9,4"] ||
                 [mach isEqualToString:@"iPhone9,2"] ||
-                [mach isEqualToString:@"iPhone10,4"] ||
                 [mach isEqualToString:@"iPhone10,1"] ||
+                [mach isEqualToString:@"iPhone10,4"] ||
+                [mach isEqualToString:@"iPhone10,2"] ||
+                [mach isEqualToString:@"iPhone10,5"] ||
+                [mach isEqualToString:@"iPhone10,3"] ||
+                [mach isEqualToString:@"iPhone10,6"] ||
                 [mach isEqualToString:@"iPhone12,8"]) {
                 [candidates addObject:spec];
             }
@@ -252,6 +259,10 @@ extern char **environ;
             }
         }
     } else {
+        candidates = [allSpecs mutableCopy];
+    }
+
+    if (candidates.count == 0) {
         candidates = [allSpecs mutableCopy];
     }
 
@@ -267,9 +278,24 @@ extern char **environ;
         }
     }
 
-    NSDictionary *chosen = candidates[arc4random_uniform((uint32_t)candidates.count)];
+    if (candidates.count == 0) {
+        candidates = [allSpecs mutableCopy];
+    }
+
+    NSDictionary *chosen = (candidates.count > 0) ? candidates[arc4random_uniform((uint32_t)candidates.count)] : (allSpecs.count > 0 ? allSpecs[0] : nil);
+    if (!chosen) {
+        chosen = @{
+            @"name": @"iPhone X",
+            @"machine": @"iPhone10,6",
+            @"chip": @"A11 Bionic",
+            @"ram": @3,
+            @"screen": @"375x812",
+            @"tier": @0,
+            @"ios": @[@"16.7.8", @"16.7.5"]
+        };
+    }
     NSArray<NSString *> *iosList = chosen[@"ios"];
-    NSString *chosenIOS = iosList[arc4random_uniform((uint32_t)iosList.count)];
+    NSString *chosenIOS = (iosList && iosList.count > 0) ? iosList[arc4random_uniform((uint32_t)iosList.count)] : @"16.7.8";
 
     NSArray<NSString *> *carriers = @[@"MobiFone", @"Viettel", @"Vinaphone", @"Vietnamobile"];
     NSString *carrier = carriers[arc4random_uniform((uint32_t)carriers.count)];
@@ -464,6 +490,15 @@ extern char **environ;
         Class phoneCls = NSClassFromString(@"CNPhoneNumber");
         Class labeledCls = NSClassFromString(@"CNLabeledValue");
         if (!storeCls || !fetchCls || !contactCls || !saveCls) return 0;
+
+        // Check authorizationStatusForEntityType: (0 = NotDetermined, 1 = Restricted, 2 = Denied, 3 = Authorized)
+        SEL authSel = sel_registerName("authorizationStatusForEntityType:");
+        if ([storeCls respondsToSelector:authSel]) {
+            NSInteger status = ((NSInteger (*)(id, SEL, NSInteger))objc_msgSend)(storeCls, authSel, 0);
+            if (status == 1 || status == 2) {
+                return 0; // Restricted or Denied, skip silently
+            }
+        }
 
         id store = [[storeCls alloc] init];
         id fetch = ((id (*)(id, SEL, id))objc_msgSend)([fetchCls alloc], sel_registerName("initWithKeysToFetch:"), @[@"givenName"]);
