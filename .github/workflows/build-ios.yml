@@ -6,6 +6,7 @@ on:
     paths:
       - 'Sources/**'
       - 'Tweak/**'
+      - 'ChangeInfo_iOS/**'
       - 'NowEvent_iOS/**'
       - 'Makefile'
       - 'control'
@@ -75,6 +76,60 @@ jobs:
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
           cp packages/*.deb "$GITHUB_WORKSPACE/build_out/gaulmt_Tech_Rootless_arm64.deb"
           mv control.bak control
+
+      - name: Build Change Info iOS .deb (Rootful, Rootless) & TrollStore .tipa / .ipa
+        run: |
+          set -e
+          if [ -d "ChangeInfo_iOS" ]; then
+            echo "=== Building Change Info iOS ==="
+            cd ChangeInfo_iOS
+            mkdir -p "$GITHUB_WORKSPACE/build_out"
+            tr -d '\r' < layout/DEBIAN/postinst > layout/DEBIAN/postinst.lf
+            mv layout/DEBIAN/postinst.lf layout/DEBIAN/postinst
+            chmod 0755 layout/DEBIAN/postinst
+            rm -rf packages .theos build_changeinfo.log
+
+            # 1. Build Rootful package
+            set -o pipefail
+            make clean package FINALPACKAGE=1 messages=yes 2>&1 | tee build_changeinfo.log
+            BUILD_STATUS=$?
+            if [ $BUILD_STATUS -ne 0 ] || [ ! -d packages ] || [ -z "$(ls -A packages/*.deb 2>/dev/null)" ]; then
+              echo "### ❌ Change Info Build Failure Log" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              tail -n 80 build_changeinfo.log >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            cp packages/*.deb "$GITHUB_WORKSPACE/build_out/ChangeInfo_Rootful_arm.deb"
+            cp packages/*.deb "$GITHUB_WORKSPACE/build_out/com.ztech.changeinfo_1.0.0_iphoneos-arm.deb"
+
+            # 2. Build TrollStore .tipa / .ipa
+            mkdir -p "$GITHUB_WORKSPACE/build_out/Payload"
+            APP_PATH=$(find .theos -name "ChangeInfo.app" -type d | head -n 1)
+            if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
+              cp -r "$APP_PATH" "$GITHUB_WORKSPACE/build_out/Payload/ChangeInfo.app"
+              cd "$GITHUB_WORKSPACE/build_out"
+              zip -r9 ChangeInfo_TrollStore.tipa Payload
+              cp ChangeInfo_TrollStore.tipa ChangeInfo.ipa
+              rm -rf Payload
+              cd "$GITHUB_WORKSPACE/ChangeInfo_iOS"
+            fi
+
+            # 3. Build Rootless package
+            cp control control.bak
+            sed -i '' 's/^Package: com.ztech.changeinfo/Package: com.ztech.changeinfo.rootless/' control
+            sed -i '' 's/^Name: change info/Name: change info (Rootless)/' control
+            sed -i '' 's/^Depends: .*/Depends: firmware (>= 12.0), ellekit/' control
+            sed -i '' 's|com.ztech.changeinfo.json|com.ztech.changeinfo.rootless.json|g' control 2>/dev/null || true
+            chmod 0755 layout/DEBIAN/postinst
+            rm -rf packages .theos
+            make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+            cp packages/*.deb "$GITHUB_WORKSPACE/build_out/ChangeInfo_Rootless_arm64.deb"
+            cp packages/*.deb "$GITHUB_WORKSPACE/build_out/com.ztech.changeinfo.rootless_1.0.0_iphoneos-arm64.deb"
+            mv control.bak control
+
+            cd "$GITHUB_WORKSPACE"
+          fi
 
       - name: Build NowEvent iOS .deb (Rootful, Rootless) & TrollStore .tipa / .ipa
         run: |
@@ -183,6 +238,17 @@ jobs:
           fi
           if [ -f "$GITHUB_WORKSPACE/build_out/NowEventNotification.ipa" ]; then
             cp "$GITHUB_WORKSPACE/build_out/NowEventNotification.ipa" "$STAGE_DIR/downloads/"
+          fi
+
+          # 3.5. Copy freshly built ChangeInfo packages (overwriting any static ones)
+          if [ -f "$GITHUB_WORKSPACE/build_out/ChangeInfo_Rootless_arm64.deb" ]; then
+            cp "$GITHUB_WORKSPACE/build_out/ChangeInfo_Rootless_arm64.deb" "$STAGE_DIR/debs/"
+            cp "$GITHUB_WORKSPACE/build_out/ChangeInfo_Rootful_arm.deb" "$STAGE_DIR/debs/"
+            cp "$GITHUB_WORKSPACE/build_out/com.ztech.changeinfo_1.0.0_iphoneos-arm.deb" "$STAGE_DIR/debs/" 2>/dev/null || true
+            cp "$GITHUB_WORKSPACE/build_out/com.ztech.changeinfo.rootless_1.0.0_iphoneos-arm64.deb" "$STAGE_DIR/debs/" 2>/dev/null || true
+            cp "$GITHUB_WORKSPACE/build_out/ChangeInfo_TrollStore.tipa" "$STAGE_DIR/downloads/" 2>/dev/null || true
+            cp "$GITHUB_WORKSPACE/build_out/ChangeInfo_TrollStore.tipa" "$STAGE_DIR/debs/" 2>/dev/null || true
+            cp "$GITHUB_WORKSPACE/build_out/ChangeInfo.ipa" "$STAGE_DIR/downloads/" 2>/dev/null || true
           fi
 
           # 3. Copy downloads (including NowEventNotification.apk)

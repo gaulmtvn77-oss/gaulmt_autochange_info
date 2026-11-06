@@ -1,0 +1,40 @@
+#!/bin/sh
+export PATH="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+mkdir -p /Library/Preferences/ZTechShared /var/jb/Library/Preferences/ZTechShared >/dev/null 2>&1 || true
+chmod 0777 /Library/Preferences/ZTechShared /var/jb/Library/Preferences/ZTechShared >/dev/null 2>&1 || true
+
+# Rootless TweakInject symlinks
+if [ -d "/var/jb/Library/MobileSubstrate/DynamicLibraries" ]; then
+    mkdir -p /var/jb/usr/lib/TweakInject >/dev/null 2>&1 || true
+    for F in /var/jb/Library/MobileSubstrate/DynamicLibraries/ChangeInfo*; do
+        if [ -f "$F" ]; then
+            BASE=$(basename "$F")
+            ln -sf "$F" "/var/jb/usr/lib/TweakInject/$BASE" >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+# Rootful TweakInject symlinks
+if [ -d "/Library/MobileSubstrate/DynamicLibraries" ] && [ ! -d "/var/jb" ]; then
+    if [ -d "/usr/lib/TweakInject" ]; then
+        for F in /Library/MobileSubstrate/DynamicLibraries/ChangeInfo*; do
+            if [ -f "$F" ]; then
+                BASE=$(basename "$F")
+                ln -sf "$F" "/usr/lib/TweakInject/$BASE" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+fi
+
+# Refresh uicache
+if command -v uicache >/dev/null 2>&1; then
+    if [ -d "/var/jb/Applications/ChangeInfo.app" ]; then
+        uicache -p /var/jb/Applications/ChangeInfo.app >/dev/null 2>&1 || true
+    fi
+    if [ -d "/Applications/ChangeInfo.app" ]; then
+        uicache -p /Applications/ChangeInfo.app >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

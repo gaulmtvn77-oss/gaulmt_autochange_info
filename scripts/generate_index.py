@@ -264,7 +264,45 @@ def generate_index(stage_dir):
       </div>
     </div>
 
-    <!-- Product 2: Now Event Notification -->
+    <!-- Product 2: change info -->
+    <div class="product-card">
+      <div class="product-header">
+        <img class="product-icon" src="CydiaIcon@3x.png" alt="change info Icon">
+        <div>
+          <div class="product-title">change info</div>
+          <div class="product-version">Phiên bản 1.0.0 · iOS 12.0 - 18.0+</div>
+        </div>
+      </div>
+      <div class="badge-row">
+        <span class="badge badge-gold">Fake Cấu Hình 1:1</span>
+        <span class="badge badge-gold">Bản Quyền HWID</span>
+        <span class="badge badge-ios">Rootless</span>
+        <span class="badge badge-ios">Rootful</span>
+        <span class="badge badge-gold">TrollStore</span>
+      </div>
+      <div class="product-desc">
+        Bản replica 1:1 chuyên biệt Fake Cấu Hình Thiết Bị &amp; Khóa Thông Số Phần Cứng (3 phân khúc đời máy: Chuẩn 7/8, Tất cả 6s–16, Đời Cao 14–16). Tích hợp hệ thống kích hoạt key online HWID, hoàn toàn độc lập không can thiệp vault Zalo.
+      </div>
+      <div class="product-actions">
+        <a class="action-link primary-troll span-2" href="apple-magnifier://install?url=https://gaulmt.github.io/downloads/ChangeInfo_TrollStore.tipa">
+          ⚡ Cài qua TrollStore (.tipa)
+        </a>
+        <a class="action-link" href="downloads/ChangeInfo.ipa">
+          📥 Tải file .IPA
+        </a>
+        <a class="action-link" href="debs/ChangeInfo_Rootless_arm64.deb">
+          📥 Tải .DEB Rootless
+        </a>
+        <a class="action-link" href="debs/ChangeInfo_Rootful_arm.deb">
+          📥 Tải .DEB Rootful
+        </a>
+        <a class="action-link span-2" href="sileo://source/https://gaulmt.github.io/">
+          ➕ Thêm nguồn vào Sileo
+        </a>
+      </div>
+    </div>
+
+    <!-- Product 3: Now Event Notification -->
     <div class="product-card">
       <div class="product-header">
         <img class="product-icon" src="icons/now_event.png" alt="Now Event Icon">

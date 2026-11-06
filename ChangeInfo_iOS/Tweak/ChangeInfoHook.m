@@ -1,0 +1,2688 @@
+
+__attribute__((visibility("default"))) int gChangeInfoHookActive = 1;
+
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <CoreFoundation/CoreFoundation.h>
+#import <CFNetwork/CFNetwork.h>
+#import <Security/Security.h>
+#import <WebKit/WebKit.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#import <sys/utsname.h>
+#import <sys/sysctl.h>
+#import <sys/stat.h>
+#import <sys/param.h>
+#import <sys/mount.h>
+#import <sys/statvfs.h>
+#import <sys/socket.h>
+#import <ifaddrs.h>
+#import <arpa/inet.h>
+#import <net/if.h>
+#import <netinet/in.h>
+#import <unistd.h>
+#import <dlfcn.h>
+#import <mach/mach.h>
+#import <mach/vm_map.h>
+#import <mach-o/dyld.h>
+#import <mach-o/loader.h>
+#import <mach-o/nlist.h>
+#import <string.h>
+#import <notify.h>
+#import <execinfo.h>
+#import <signal.h>
+#import <time.h>
+#if __has_feature(ptrauth_calls)
+#import <ptrauth.h>
+#endif
+
+#pragma mark - Lock-Free Pre-Cached Profile, Pure C Buffers & Pre-Parsed Proxy State
+
+#ifndef KERN_OSRELEASE
+#define KERN_OSRELEASE 2
+#endif
+#ifndef KERN_VERSION
+#define KERN_VERSION 4
+#endif
+extern int __sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+
+static NSDictionary *gCachedProfile = nil;
+static char gMachineCStr[64] = "iPhone9,3";
+static char gBoardIdCStr[32] = "D10AP";
+static char gModelNameCStr[64] = "iPhone 7";
+static char gRealMachineCStr[64] = "iPhone12,1";
+static struct utsname gRealUts;
+static int gHasRealUts = 0;
+static int gIsAidaProcess = 0;
+static uint64_t gRamBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+static NSString *gModelNameObj = @"iPhone 7";
+static NSString *gMachineIdObj = @"iPhone9,3";
+static NSString *gIosVersionObj = @"15.8.4";
+static NSString *gUuidObj = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
+static NSUUID *gCachedVendorUUID = nil;
+static NSString *gSerialNumberObj = @"F17K308P0D7L";
+static NSString *gWifiMacObj = @"3c:06:30:1a:8b:24";
+static NSString *gBtMacObj = @"3c:06:30:1a:8b:25";
+static NSString *gImeiObj = @"354892110294821";
+static NSString *gRealMachineObj = @"";
+static NSString *gRealMarketingObj = @"";
+static NSString *gRealBoardIdObj = @"";
+static NSString *gRealIosVersionObj = @"";
+static NSString *gRealIosUnderscoreObj = @"";
+static NSString *gRealScaleStr = @"Scale/2.00";
+static NSString *gTargetIosUnderscoreObj = @"15_8_4";
+static NSString *gTargetScaleStr = @"Scale/2.00";
+static NSString *gCarrierNameObj = @"Viettel";
+static NSString *gActiveProxyObj = @"";
+static float gBatteryFloat = 0.76f;
+static NSInteger gScreenWidth = 375;
+static NSInteger gScreenHeight = 667;
+static float gScreenScale = 2.0f;
+static NSInteger gCpuCores = 4;
+static NSInteger gRamGB = 2;
+static NSString *gGpuNameObj = @"Apple A10 Fusion GPU";
+static NSString *gWebKitUserAgent = nil;
+
+static NSString *ZTechGPUNameForMachine(NSString *machine);
+
+static NSUncaughtExceptionHandler *gPrevUncaughtHandler = NULL;
+static time_t gProcessStartTime = 0;
+
+static void ZTechWriteLogToContainerAndTmp(const char *fileName, const char *content) {
+    if (!fileName || !content) return;
+    const char *home = getenv("HOME");
+    if (home && home[0] != '\0') {
+        char p1[1024] = {0};
+        snprintf(p1, sizeof(p1), "%s/Documents/%s", home, fileName);
+        FILE *f1 = fopen(p1, "a");
+        if (f1) {
+            fputs(content, f1);
+            fflush(f1);
+            fclose(f1);
+        }
+        char p2[1024] = {0};
+        snprintf(p2, sizeof(p2), "%s/Library/Caches/%s", home, fileName);
+        FILE *f2 = fopen(p2, "a");
+        if (f2) {
+            fputs(content, f2);
+            fflush(f2);
+            fclose(f2);
+        }
+    }
+    char p3[256] = {0};
+    snprintf(p3, sizeof(p3), "/var/tmp/%s", fileName);
+    FILE *f3 = fopen(p3, "a");
+    if (f3) {
+        fputs(content, f3);
+        fflush(f3);
+        fclose(f3);
+    }
+}
+
+static void ZTechHookTrace(const char *msg) {
+    if (!msg) return;
+    time_t now = time(NULL);
+    char tbuf[32] = {0};
+    struct tm tm_info;
+    localtime_r(&now, &tm_info);
+    strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &tm_info);
+    char line[1024] = {0};
+    snprintf(line, sizeof(line), "[%s][pid:%d] %s\n", tbuf, getpid(), msg);
+    ZTechWriteLogToContainerAndTmp("ztech_hook_trace.log", line);
+}
+
+static void ZTechAtExitHandler(void) {
+    time_t now = time(NULL);
+    char tbuf[32] = {0};
+    struct tm tm_info;
+    localtime_r(&now, &tm_info);
+    strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &tm_info);
+
+    NSMutableString *buf = [NSMutableString stringWithFormat:@"\n=== [PROCESS EXIT CAUGHT BY ZTECH ATEXIT] ===\nTime: %s | PID: %d | Uptime: %lds\n",
+                            tbuf, getpid(), (long)(now - gProcessStartTime)];
+    void *callstack[48];
+    int frames = backtrace(callstack, 48);
+    char **strs = backtrace_symbols(callstack, frames);
+    if (strs) {
+        [buf appendFormat:@"Exit Callstack (%d frames):\n", frames];
+        for (int i = 0; i < frames; ++i) {
+            [buf appendFormat:@"  [%02d] %s\n", i, strs[i]];
+        }
+        free(strs);
+    }
+    [buf appendString:@"=============================================\n\n"];
+    ZTechWriteLogToContainerAndTmp("ztech_crash.log", [buf UTF8String]);
+    ZTechHookTrace("Process invoked exit() -> logged callstack to ztech_crash.log");
+}
+
+static void ZTechUncaughtExceptionHandler(NSException *exception) {
+    if (exception) {
+        time_t now = time(NULL);
+        char tbuf[32] = {0};
+        struct tm tm_info;
+        localtime_r(&now, &tm_info);
+        strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &tm_info);
+        NSMutableString *buf = [NSMutableString stringWithFormat:@"\n=== [UNCAUGHT EXCEPTION CAUGHT BY ZTECH HOOK] ===\nTime: %s | PID: %d\nName: %@\nReason: %@\n",
+                                tbuf, getpid(), exception.name ?: @"Unknown", exception.reason ?: @"Unknown"];
+        NSArray *syms = [exception callStackSymbols];
+        if (syms) {
+            [buf appendString:@"CallStack:\n"];
+            for (NSString *sym in syms) {
+                [buf appendFormat:@"  %@\n", sym];
+            }
+        }
+        [buf appendString:@"=================================================\n\n"];
+        ZTechWriteLogToContainerAndTmp("ztech_crash.log", [buf UTF8String]);
+        ZTechHookTrace([[NSString stringWithFormat:@"[EXCEPTION] %@: %@", exception.name, exception.reason] UTF8String]);
+    }
+        if (gPrevUncaughtHandler && gPrevUncaughtHandler != &ZTechUncaughtExceptionHandler) {
+        gPrevUncaughtHandler(exception);
+    }
+}
+
+static void ZTechSignalHandler(int sig, siginfo_t *info, void *uap) {
+    const char *sigName = "UNKNOWN";
+    switch (sig) {
+        case SIGABRT: sigName = "SIGABRT"; break;
+        case SIGTRAP: sigName = "SIGTRAP"; break;
+        case SIGILL:  sigName = "SIGILL";  break;
+        case SIGSEGV: sigName = "SIGSEGV"; break;
+        case SIGBUS:  sigName = "SIGBUS";  break;
+    }
+    time_t now = time(NULL);
+    char header[256] = {0};
+    snprintf(header, sizeof(header),
+             "\n=== [SIGNAL %s (%d) CAUGHT BY ZTECH HOOK] ===\nPID: %d | Uptime: %lds | FaultAddr: %p\n",
+             sigName, sig, getpid(), (long)(now - gProcessStartTime), info ? info->si_addr : NULL);
+    ZTechWriteLogToContainerAndTmp("ztech_crash.log", header);
+    ZTechHookTrace(header);
+
+    void *callstack[48];
+    int frames = backtrace(callstack, 48);
+    char **strs = backtrace_symbols(callstack, frames);
+    if (strs) {
+        for (int i = 0; i < frames; ++i) {
+            char fline[512] = {0};
+            snprintf(fline, sizeof(fline), "  [%02d] %s\n", i, strs[i]);
+            ZTechWriteLogToContainerAndTmp("ztech_crash.log", fline);
+        }
+        free(strs);
+    }
+    ZTechWriteLogToContainerAndTmp("ztech_crash.log", "=================================================\n\n");
+
+    struct sigaction dfl = {0};
+    dfl.sa_handler = SIG_DFL;
+    sigemptyset(&dfl.sa_mask);
+    sigaction(sig, &dfl, NULL);
+    raise(sig);
+}
+
+static void ZTechInstallSignalHandlers(void) {
+    int sigs[] = { SIGABRT, SIGTRAP, SIGILL, SIGSEGV, SIGBUS };
+    for (size_t i = 0; i < sizeof(sigs) / sizeof(sigs[0]); ++i) {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_sigaction = &ZTechSignalHandler;
+        sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+        sigemptyset(&sa.sa_mask);
+        sigaction(sigs[i], &sa, NULL);
+    }
+}
+
+
+
+
+// Pre-cached Proxy Structures for Zero-Latency / Zero-Leak Networking Enforcement
+static volatile int gProxyEnabled = 0;
+static volatile int gProxyIsSocks = 0;
+static uint32_t gMaskedLocalIPv4 = 0x6C01A8C0; // 192.168.1.108 in network byte order
+static NSDictionary *gCachedProxyDict = nil;
+static NSArray *gCachedCFProxyArray = nil;
+static NSString *gCachedProxyAuthHeader = nil;
+
+static void ZTechRebuildCachedProxyState(NSString *rawProxy) {
+    if (!rawProxy || rawProxy.length == 0) {
+        gProxyEnabled = 0;
+        gProxyIsSocks = 0;
+        gCachedProxyDict = nil;
+        gCachedCFProxyArray = nil;
+        gCachedProxyAuthHeader = nil;
+        return;
+    }
+
+    NSString *s = [rawProxy stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (s.length == 0) {
+        gProxyEnabled = 0;
+        gProxyIsSocks = 0;
+        gCachedProxyDict = nil;
+        gCachedCFProxyArray = nil;
+        gCachedProxyAuthHeader = nil;
+        return;
+    }
+
+    BOOL isSocks = NO;
+    NSString *lower = [s lowercaseString];
+    if ([lower hasPrefix:@"socks5://"]) {
+        isSocks = YES;
+        s = [s substringFromIndex:9];
+    } else if ([lower hasPrefix:@"socks5h://"]) {
+        isSocks = YES;
+        s = [s substringFromIndex:10];
+    } else if ([lower hasPrefix:@"socks://"]) {
+        isSocks = YES;
+        s = [s substringFromIndex:8];
+    } else if ([lower hasPrefix:@"http://"]) {
+        s = [s substringFromIndex:7];
+    } else if ([lower hasPrefix:@"https://"]) {
+        s = [s substringFromIndex:8];
+    }
+
+    NSRange slashRange = [s rangeOfString:@"/"];
+    if (slashRange.location != NSNotFound) {
+        s = [s substringToIndex:slashRange.location];
+    }
+
+    NSString *host = nil;
+    NSInteger port = 0;
+    NSString *user = nil;
+    NSString *pass = nil;
+
+    if ([s containsString:@"@"]) {
+        NSArray<NSString *> *atParts = [s componentsSeparatedByString:@"@"];
+        if (atParts.count == 2) {
+            NSArray<NSString *> *p0 = [atParts[0] componentsSeparatedByString:@":"];
+            NSArray<NSString *> *p1 = [atParts[1] componentsSeparatedByString:@":"];
+            if (p1.count == 2 && [p1[1] integerValue] > 0 && [p1[1] integerValue] <= 65535 && [p1[0] containsString:@"."]) {
+                user = p0.count >= 1 ? p0[0] : nil;
+                pass = p0.count >= 2 ? [[p0 subarrayWithRange:NSMakeRange(1, p0.count - 1)] componentsJoinedByString:@":"] : nil;
+                host = p1[0];
+                port = [p1[1] integerValue];
+            } else if (p0.count == 2 && [p0[1] integerValue] > 0 && [p0[1] integerValue] <= 65535) {
+                host = p0[0];
+                port = [p0[1] integerValue];
+                user = p1.count >= 1 ? p1[0] : nil;
+                pass = p1.count >= 2 ? [[p1 subarrayWithRange:NSMakeRange(1, p1.count - 1)] componentsJoinedByString:@":"] : nil;
+            }
+        }
+    } else {
+        NSArray<NSString *> *parts = [s componentsSeparatedByString:@":"];
+        if (parts.count >= 2) {
+            host = parts[0];
+            port = [parts[1] integerValue];
+            if (parts.count >= 4) {
+                user = parts[2];
+                pass = [[parts subarrayWithRange:NSMakeRange(3, parts.count - 3)] componentsJoinedByString:@":"];
+            }
+        }
+    }
+
+    host = [host stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!host || host.length == 0 || port <= 0 || port > 65535) {
+        gProxyEnabled = 0;
+        gProxyIsSocks = 0;
+        gCachedProxyDict = nil;
+        gCachedCFProxyArray = nil;
+        gCachedProxyAuthHeader = nil;
+        return;
+    }
+
+    NSString *authHeader = nil;
+    if (user.length > 0 && pass != nil) {
+        NSString *rawCred = [NSString stringWithFormat:@"%@:%@", user, pass];
+        NSData *credData = [rawCred dataUsingEncoding:NSUTF8StringEncoding];
+        if (credData) {
+            authHeader = [NSString stringWithFormat:@"Basic %@", [credData base64EncodedStringWithOptions:0]];
+        }
+    }
+
+    NSMutableDictionary *proxyDict = [NSMutableDictionary dictionary];
+    proxyDict[@"ProxyAutoConfigEnable"] = @0;
+    proxyDict[@"ProxyAutoDiscoveryEnable"] = @0;
+    proxyDict[@"ExcludeSimpleHostnames"] = @0;
+
+    NSMutableDictionary *cfProxyItem = [NSMutableDictionary dictionary];
+    cfProxyItem[(__bridge NSString *)kCFProxyHostNameKey] = host;
+    cfProxyItem[(__bridge NSString *)kCFProxyPortNumberKey] = @(port);
+    if (user.length > 0 && pass != nil) {
+        cfProxyItem[(__bridge NSString *)kCFProxyUsernameKey] = user;
+        cfProxyItem[(__bridge NSString *)kCFProxyPasswordKey] = pass;
+    }
+
+    if (isSocks) {
+        proxyDict[@"SOCKSEnable"] = @1;
+        proxyDict[@"SOCKSProxy"] = host;
+        proxyDict[@"SOCKSPort"] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSProxyHost] = host;
+        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSProxyPort] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSVersion] = (__bridge NSString *)kCFStreamSocketSOCKSVersion5;
+        if (user.length > 0 && pass != nil) {
+            proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSUser] = user;
+            proxyDict[(__bridge NSString *)kCFStreamPropertySOCKSPassword] = pass;
+            proxyDict[(__bridge NSString *)kCFProxyUsernameKey] = user;
+            proxyDict[(__bridge NSString *)kCFProxyPasswordKey] = pass;
+        }
+        cfProxyItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeSOCKS;
+    } else {
+        proxyDict[@"HTTPEnable"] = @1;
+        proxyDict[@"HTTPProxy"] = host;
+        proxyDict[@"HTTPPort"] = @(port);
+        proxyDict[@"HTTPSEnable"] = @1;
+        proxyDict[@"HTTPSProxy"] = host;
+        proxyDict[@"HTTPSPort"] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPProxyHost] = host;
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPProxyPort] = @(port);
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPSProxyHost] = host;
+        proxyDict[(__bridge NSString *)kCFStreamPropertyHTTPSProxyPort] = @(port);
+        if (user.length > 0 && pass != nil) {
+            proxyDict[(__bridge NSString *)kCFProxyUsernameKey] = user;
+            proxyDict[(__bridge NSString *)kCFProxyPasswordKey] = pass;
+            proxyDict[@"HTTPUser"] = user;
+            proxyDict[@"HTTPPassword"] = pass;
+            proxyDict[@"HTTPSUser"] = user;
+            proxyDict[@"HTTPSPassword"] = pass;
+        }
+        cfProxyItem[(__bridge NSString *)kCFProxyTypeKey] = (__bridge NSString *)kCFProxyTypeHTTP;
+    }
+
+    uint32_t hash = (uint32_t)([host hash] ^ (NSUInteger)port);
+    uint8_t lastOctet = (uint8_t)((hash % 230) + 15);
+    gMaskedLocalIPv4 = htonl((192U << 24) | (168U << 16) | (1U << 8) | (uint32_t)lastOctet);
+
+    gCachedProxyDict = [proxyDict copy];
+    gCachedCFProxyArray = @[[cfProxyItem copy]];
+    gCachedProxyAuthHeader = [authHeader copy];
+    gProxyIsSocks = isSocks ? 1 : 0;
+    gProxyEnabled = 1;
+
+    // Pre-seed NSURLCredentialStorage for HTTP/HTTPS Proxy Protection Spaces
+    // Eliminates iOS "Xác minh proxy" system prompt and ensures 100% silent background authentication
+    if (user.length > 0 && pass != nil && host.length > 0 && port > 0) {
+        @try {
+            NSString *kProtoHTTPProxy = @"NSURLProtectionSpaceHTTPProxy";
+            NSString *kProtoHTTPSProxy = @"NSURLProtectionSpaceHTTPSProxy";
+            NSString *kAuthMethodProxy = @"NSURLAuthenticationMethodHTTPProxy";
+            NSURLProtectionSpace *httpSpace = [[NSURLProtectionSpace alloc] initWithHost:host port:port protocol:kProtoHTTPProxy realm:nil authenticationMethod:kAuthMethodProxy];
+            NSURLProtectionSpace *httpsSpace = [[NSURLProtectionSpace alloc] initWithHost:host port:port protocol:kProtoHTTPSProxy realm:nil authenticationMethod:kAuthMethodProxy];
+            NSURLCredential *cred = [NSURLCredential credentialWithUser:user password:pass persistence:NSURLCredentialPersistenceForSession];
+            [[NSURLCredentialStorage sharedCredentialStorage] setDefaultCredential:cred forProtectionSpace:httpSpace];
+            [[NSURLCredentialStorage sharedCredentialStorage] setCredential:cred forProtectionSpace:httpSpace];
+            [[NSURLCredentialStorage sharedCredentialStorage] setDefaultCredential:cred forProtectionSpace:httpsSpace];
+            [[NSURLCredentialStorage sharedCredentialStorage] setCredential:cred forProtectionSpace:httpsSpace];
+        } @catch (NSException *e) {}
+    }
+}
+
+static NSDictionary *ZTechNormalizeProfile(NSDictionary *raw) {
+    NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:raw ?: @{}];
+    NSString *machine = m[@"machineId"];
+    NSString *model = m[@"modelName"];
+    if (!machine || machine.length == 0 || !model || model.length == 0) {
+        m[@"machineId"] = @"iPhone9,3";
+        m[@"modelName"] = @"iPhone 7";
+    }
+    NSString *ios = m[@"iosVersion"];
+    if (!ios || [ios integerValue] < 14) {
+        m[@"iosVersion"] = @"15.8.4";
+    }
+    if (!m[@"ramGB"] || [m[@"ramGB"] integerValue] < 2) {
+        m[@"ramGB"] = @2;
+    }
+    if (!m[@"batteryPercent"] || [m[@"batteryPercent"] integerValue] <= 0) {
+        m[@"batteryPercent"] = @76;
+    }
+    if (!m[@"identifier"] || [m[@"identifier"] length] == 0) {
+        m[@"identifier"] = @"7BD46FDA-D93D-45BD-9158-7178669502DD";
+    }
+    if (!m[@"carrier"] || [m[@"carrier"] length] == 0) {
+        m[@"carrier"] = @"Viettel";
+    }
+    if (!m[@"activeProxy"]) {
+        m[@"activeProxy"] = @"";
+    }
+    return m;
+}
+
+static NSString *ZTechBoardIdForMachine(NSString *m) {
+    if (!m) return @"D94AP";
+    if ([m isEqualToString:@"iPhone17,2"]) return @"D94AP"; // 16 Pro Max
+    if ([m isEqualToString:@"iPhone17,1"]) return @"D93AP"; // 16 Pro
+    if ([m isEqualToString:@"iPhone17,3"]) return @"D47AP"; // 16
+    if ([m isEqualToString:@"iPhone17,4"]) return @"D48AP"; // 16 Plus
+    if ([m isEqualToString:@"iPhone17,5"]) return @"D49AP"; // 16e
+    if ([m isEqualToString:@"iPhone16,2"]) return @"D84AP"; // 15 Pro Max
+    if ([m isEqualToString:@"iPhone16,1"]) return @"D83AP"; // 15 Pro
+    if ([m isEqualToString:@"iPhone15,5"]) return @"D83AP"; // 15 Plus
+    if ([m isEqualToString:@"iPhone15,4"]) return @"D83AP"; // 15
+    if ([m isEqualToString:@"iPhone15,3"]) return @"D74AP"; // 14 Pro Max
+    if ([m isEqualToString:@"iPhone15,2"]) return @"D73AP"; // 14 Pro
+    if ([m isEqualToString:@"iPhone14,8"]) return @"D28AP"; // 14 Plus
+    if ([m isEqualToString:@"iPhone14,7"]) return @"D27AP"; // 14
+    if ([m isEqualToString:@"iPhone14,3"]) return @"D28AP"; // 13 Pro Max
+    if ([m isEqualToString:@"iPhone14,2"]) return @"D27AP"; // 13 Pro
+    if ([m isEqualToString:@"iPhone14,5"]) return @"D17AP"; // 13
+    if ([m isEqualToString:@"iPhone14,4"]) return @"D16AP"; // 13 mini
+    if ([m isEqualToString:@"iPhone14,6"]) return @"D49AP"; // SE 2022
+    if ([m isEqualToString:@"iPhone13,4"]) return @"D54pAP"; // 12 Pro Max
+    if ([m isEqualToString:@"iPhone13,3"]) return @"D53pAP"; // 12 Pro
+    if ([m isEqualToString:@"iPhone13,2"]) return @"D53gAP"; // 12
+    if ([m isEqualToString:@"iPhone13,1"]) return @"D52gAP"; // 12 mini
+    if ([m isEqualToString:@"iPhone12,8"]) return @"D79AP"; // SE 2020
+    if ([m isEqualToString:@"iPhone12,5"]) return @"D431AP"; // 11 Pro Max
+    if ([m isEqualToString:@"iPhone12,3"]) return @"D421AP"; // 11 Pro
+    if ([m isEqualToString:@"iPhone12,1"]) return @"N104AP"; // 11
+    if ([m isEqualToString:@"iPhone11,8"]) return @"N841AP"; // XR
+    if ([m isEqualToString:@"iPhone11,6"] || [m isEqualToString:@"iPhone11,4"]) return @"D331pAP"; // XS Max
+    if ([m isEqualToString:@"iPhone11,2"]) return @"D321AP"; // XS
+    if ([m isEqualToString:@"iPhone10,6"] || [m isEqualToString:@"iPhone10,3"]) return @"D22AP"; // X
+    if ([m isEqualToString:@"iPhone10,5"] || [m isEqualToString:@"iPhone10,2"]) return @"D21AP"; // 8 Plus
+    if ([m isEqualToString:@"iPhone10,4"] || [m isEqualToString:@"iPhone10,1"]) return @"D20AP"; // 8
+    if ([m isEqualToString:@"iPhone9,4"] || [m isEqualToString:@"iPhone9,2"]) return @"D11AP"; // 7 Plus
+    if ([m isEqualToString:@"iPhone9,3"] || [m isEqualToString:@"iPhone9,1"]) return @"D10AP"; // 7
+    if ([m isEqualToString:@"iPhone8,4"]) return @"N69uAP"; // SE 1st Gen
+    if ([m isEqualToString:@"iPhone8,2"]) return @"N66AP"; // 6s Plus
+    if ([m isEqualToString:@"iPhone8,1"]) return @"N71AP"; // 6s
+    return @"D94AP";
+}
+
+static const char *ZTechSocForMachine(NSString *m) {
+    if (!m) return "T8010";
+    if ([m hasPrefix:@"iPhone9,"]) return "T8010";
+    if ([m hasPrefix:@"iPhone10,"]) return "T8015";
+    if ([m hasPrefix:@"iPhone11,"]) return "T8020";
+    if ([m hasPrefix:@"iPhone12,8"]) return "T8030";
+    if ([m hasPrefix:@"iPhone12,"]) return "T8030";
+    if ([m hasPrefix:@"iPhone13,"]) return "T8101";
+    if ([m hasPrefix:@"iPhone14,6"]) return "T8110";
+    if ([m hasPrefix:@"iPhone14,"]) return "T8110";
+    if ([m hasPrefix:@"iPhone15,2"] || [m hasPrefix:@"iPhone15,3"]) return "T8120";
+    if ([m hasPrefix:@"iPhone15,"]) return "T8110";
+    if ([m hasPrefix:@"iPhone16,"]) return "T8130";
+    if ([m hasPrefix:@"iPhone17,1"] || [m hasPrefix:@"iPhone17,2"]) return "T8140";
+    if ([m hasPrefix:@"iPhone17,"]) return "T8140";
+    return "T8010";
+}
+
+static const char *ZTechCpuBrandStringForMachine(NSString *m) {
+    if (!m || m.length == 0) return "Apple A10 Fusion";
+    if ([m hasPrefix:@"iPhone9,"]) return "Apple A10 Fusion";
+    if ([m hasPrefix:@"iPhone10,"]) return "Apple A11 Bionic";
+    if ([m hasPrefix:@"iPhone11,"]) return "Apple A12 Bionic";
+    if ([m hasPrefix:@"iPhone12,8"]) return "Apple A13 Bionic";
+    if ([m hasPrefix:@"iPhone12,"]) return "Apple A13 Bionic";
+    if ([m hasPrefix:@"iPhone13,"]) return "Apple A14 Bionic";
+    if ([m hasPrefix:@"iPhone14,6"]) return "Apple A15 Bionic";
+    if ([m hasPrefix:@"iPhone14,"]) return "Apple A15 Bionic";
+    if ([m hasPrefix:@"iPhone15,2"] || [m hasPrefix:@"iPhone15,3"]) return "Apple A16 Bionic";
+    if ([m hasPrefix:@"iPhone15,"]) return "Apple A15 Bionic";
+    if ([m hasPrefix:@"iPhone16,"]) return "Apple A17 Pro";
+    if ([m hasPrefix:@"iPhone17,1"] || [m hasPrefix:@"iPhone17,2"]) return "Apple A18 Pro";
+    if ([m hasPrefix:@"iPhone17,"]) return "Apple A18";
+    return "Apple A10 Fusion";
+}
+
+static const char *ZTechBuildVersionForIos(NSString *ios) {
+    if (!ios || ios.length == 0) return "19H390";
+    if ([ios hasPrefix:@"15.8"]) return "19H390";
+    if ([ios hasPrefix:@"15."]) return "19H390";
+    if ([ios hasPrefix:@"16."]) return "20G81";
+    if ([ios hasPrefix:@"17."]) return "21G93";
+    if ([ios hasPrefix:@"18."]) return "22B83";
+    return "19H390";
+}
+
+static const char *ZTechDarwinReleaseForIos(NSString *ios) {
+    if (!ios || ios.length == 0) return "21.6.0";
+    if ([ios hasPrefix:@"15."]) return "21.6.0";
+    if ([ios hasPrefix:@"16."]) return "22.6.0";
+    if ([ios hasPrefix:@"17."]) return "23.5.0";
+    if ([ios hasPrefix:@"18."]) return "24.2.0";
+    return "21.6.0";
+}
+
+static void ZTechFormatDarwinVersion(char *outBuf, size_t outSize, NSString *machine, NSString *ios) {
+    if (!outBuf || outSize == 0) return;
+    const char *soc = ZTechSocForMachine(machine);
+    const char *rel = ZTechDarwinReleaseForIos(ios);
+    if ([ios hasPrefix:@"15."]) {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Wed Apr 24 05:48:47 PDT 2024; root:xnu-8020.240.18.705.5~1/RELEASE_ARM64_%s", rel, soc);
+    } else if ([ios hasPrefix:@"16."]) {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Mon Aug 12 21:05:32 PDT 2024; root:xnu-8796.141.3~6/RELEASE_ARM64_%s", rel, soc);
+    } else if ([ios hasPrefix:@"17."]) {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Mon May 13 20:43:08 PDT 2024; root:xnu-10063.121.3~5/RELEASE_ARM64_%s", rel, soc);
+    } else {
+        snprintf(outBuf, outSize, "Darwin Kernel Version %s: Fri Nov 15 00:00:00 PST 2024; root:xnu-11215.61.5~2/RELEASE_ARM64_%s", rel, soc);
+    }
+}
+
+static NSString *ZTechScaleForMachine(NSString *mach) {
+    if (!mach) return @"Scale/3.00";
+    if ([mach isEqualToString:@"iPhone8,1"] || [mach isEqualToString:@"iPhone8,4"] ||
+        [mach isEqualToString:@"iPhone9,1"] || [mach isEqualToString:@"iPhone9,3"] ||
+        [mach isEqualToString:@"iPhone10,1"] || [mach isEqualToString:@"iPhone10,4"] ||
+        [mach isEqualToString:@"iPhone11,8"] || [mach isEqualToString:@"iPhone12,1"] ||
+        [mach isEqualToString:@"iPhone12,8"] || [mach isEqualToString:@"iPhone14,6"]) {
+        return @"Scale/2.00";
+    }
+    return @"Scale/3.00";
+}
+
+static NSString *ZTechMarketingNameForMachine(NSString *mach) {
+    if (!mach) return @"iPhone 7";
+    if ([mach isEqualToString:@"iPhone17,2"]) return @"iPhone 16 Pro Max";
+    if ([mach isEqualToString:@"iPhone17,1"]) return @"iPhone 16 Pro";
+    if ([mach isEqualToString:@"iPhone17,4"]) return @"iPhone 16 Plus";
+    if ([mach isEqualToString:@"iPhone17,3"]) return @"iPhone 16";
+    if ([mach isEqualToString:@"iPhone17,5"]) return @"iPhone 16e";
+    if ([mach isEqualToString:@"iPhone16,2"]) return @"iPhone 15 Pro Max";
+    if ([mach isEqualToString:@"iPhone16,1"]) return @"iPhone 15 Pro";
+    if ([mach isEqualToString:@"iPhone15,5"]) return @"iPhone 15 Plus";
+    if ([mach isEqualToString:@"iPhone15,4"]) return @"iPhone 15";
+    if ([mach isEqualToString:@"iPhone15,3"]) return @"iPhone 14 Pro Max";
+    if ([mach isEqualToString:@"iPhone15,2"]) return @"iPhone 14 Pro";
+    if ([mach isEqualToString:@"iPhone14,8"]) return @"iPhone 14 Plus";
+    if ([mach isEqualToString:@"iPhone14,7"]) return @"iPhone 14";
+    if ([mach isEqualToString:@"iPhone14,6"]) return @"iPhone SE (2022)";
+    if ([mach isEqualToString:@"iPhone14,3"]) return @"iPhone 13 Pro Max";
+    if ([mach isEqualToString:@"iPhone14,2"]) return @"iPhone 13 Pro";
+    if ([mach isEqualToString:@"iPhone14,5"]) return @"iPhone 13";
+    if ([mach isEqualToString:@"iPhone14,4"]) return @"iPhone 13 mini";
+    if ([mach isEqualToString:@"iPhone13,4"]) return @"iPhone 12 Pro Max";
+    if ([mach isEqualToString:@"iPhone13,3"]) return @"iPhone 12 Pro";
+    if ([mach isEqualToString:@"iPhone13,2"]) return @"iPhone 12";
+    if ([mach isEqualToString:@"iPhone13,1"]) return @"iPhone 12 mini";
+    if ([mach isEqualToString:@"iPhone12,8"]) return @"iPhone SE (2020)";
+    if ([mach isEqualToString:@"iPhone12,5"]) return @"iPhone 11 Pro Max";
+    if ([mach isEqualToString:@"iPhone12,3"]) return @"iPhone 11 Pro";
+    if ([mach isEqualToString:@"iPhone12,1"]) return @"iPhone 11";
+    if ([mach isEqualToString:@"iPhone11,8"]) return @"iPhone XR";
+    if ([mach isEqualToString:@"iPhone11,6"] || [mach isEqualToString:@"iPhone11,4"]) return @"iPhone XS Max";
+    if ([mach isEqualToString:@"iPhone11,2"]) return @"iPhone XS";
+    if ([mach isEqualToString:@"iPhone10,6"] || [mach isEqualToString:@"iPhone10,3"]) return @"iPhone X";
+    if ([mach isEqualToString:@"iPhone10,5"] || [mach isEqualToString:@"iPhone10,2"]) return @"iPhone 8 Plus";
+    if ([mach isEqualToString:@"iPhone10,4"] || [mach isEqualToString:@"iPhone10,1"]) return @"iPhone 8";
+    if ([mach isEqualToString:@"iPhone9,4"] || [mach isEqualToString:@"iPhone9,2"]) return @"iPhone 7 Plus";
+    if ([mach isEqualToString:@"iPhone9,3"] || [mach isEqualToString:@"iPhone9,1"]) return @"iPhone 7";
+    if ([mach isEqualToString:@"iPhone8,4"]) return @"iPhone SE (1st Gen)";
+    if ([mach isEqualToString:@"iPhone8,2"]) return @"iPhone 6s Plus";
+    if ([mach isEqualToString:@"iPhone8,1"]) return @"iPhone 6s";
+    return @"iPhone";
+}
+
+static void ZTechApplyCachedProfileValues(NSDictionary *prof) {
+    if (!prof) return;
+    gCachedProfile = prof;
+    gModelNameObj = [prof[@"modelName"] ?: @"iPhone 16 Pro Max" copy];
+    gMachineIdObj = [prof[@"machineId"] ?: @"iPhone17,2" copy];
+    gIosVersionObj = [prof[@"iosVersion"] ?: @"18.2.1" copy];
+    gTargetIosUnderscoreObj = [gIosVersionObj stringByReplacingOccurrencesOfString:@"." withString:@"_"];
+    gTargetScaleStr = ZTechScaleForMachine(gMachineIdObj);
+    gUuidObj = [prof[@"identifier"] ?: @"7BD46FDA-D93D-45BD-9158-7178669502DD" copy];
+    if (gUuidObj.length > 0) {
+        gCachedVendorUUID = [[NSUUID alloc] initWithUUIDString:gUuidObj];
+    }
+    if (!gCachedVendorUUID) {
+        gCachedVendorUUID = [NSUUID UUID];
+    }
+    gCarrierNameObj = [prof[@"carrier"] ?: @"Viettel" copy];
+    gActiveProxyObj = [prof[@"activeProxy"] ?: @"" copy];
+
+    uint32_t seed = (uint32_t)[gUuidObj hash];
+    gSerialNumberObj = [NSString stringWithFormat:@"F17%04X%04X", (unsigned int)(seed & 0xFFFF), (unsigned int)((seed >> 16) & 0xFFFF)];
+    gWifiMacObj = [NSString stringWithFormat:@"3c:%02x:%02x:%02x:%02x:24",
+                   (unsigned int)((seed) & 0xFF),
+                   (unsigned int)((seed >> 8) & 0xFF),
+                   (unsigned int)((seed >> 16) & 0xFF),
+                   (unsigned int)((seed >> 24) & 0xFF)];
+    gBtMacObj = [NSString stringWithFormat:@"3c:%02x:%02x:%02x:%02x:25",
+                 (unsigned int)((seed) & 0xFF),
+                 (unsigned int)((seed >> 8) & 0xFF),
+                 (unsigned int)((seed >> 16) & 0xFF),
+                 (unsigned int)((seed >> 24) & 0xFF)];
+    gImeiObj = [NSString stringWithFormat:@"35%013llu", (unsigned long long)((uint64_t)seed % 9000000000000ULL + 1000000000000ULL)];
+
+    const char *mc = [gMachineIdObj UTF8String];
+    if (mc) {
+        strncpy(gMachineCStr, mc, sizeof(gMachineCStr) - 1);
+        gMachineCStr[sizeof(gMachineCStr) - 1] = '\0';
+    }
+    const char *mnc = [gModelNameObj UTF8String];
+    if (mnc) {
+        strncpy(gModelNameCStr, mnc, sizeof(gModelNameCStr) - 1);
+        gModelNameCStr[sizeof(gModelNameCStr) - 1] = '\0';
+    }
+    NSString *boardObj = ZTechBoardIdForMachine(gMachineIdObj);
+    const char *bc = [boardObj UTF8String];
+    if (bc) {
+        strncpy(gBoardIdCStr, bc, sizeof(gBoardIdCStr) - 1);
+        gBoardIdCStr[sizeof(gBoardIdCStr) - 1] = '\0';
+    }
+
+    NSInteger ramGB = [prof[@"ramGB"] integerValue];
+    if (ramGB < 2) ramGB = 2;
+    gRamBytes = (uint64_t)ramGB * 1024ULL * 1024ULL * 1024ULL;
+
+    NSInteger pct = [prof[@"batteryPercent"] integerValue];
+    gBatteryFloat = (pct > 0 && pct <= 100) ? ((float)pct / 100.0f) : 0.76f;
+
+    NSString *screenKey = prof[@"screenKey"];
+    if (screenKey && [screenKey containsString:@"x"]) {
+        NSArray *parts = [screenKey componentsSeparatedByString:@"x"];
+        if (parts.count == 2) {
+            gScreenWidth = [parts[0] integerValue];
+            gScreenHeight = [parts[1] integerValue];
+        }
+    }
+    if (gScreenWidth <= 0 || gScreenHeight <= 0) {
+        if ([gMachineIdObj isEqualToString:@"iPhone17,2"] || [gMachineIdObj isEqualToString:@"iPhone16,2"] ||
+            [gMachineIdObj isEqualToString:@"iPhone15,3"] || [gMachineIdObj isEqualToString:@"iPhone14,3"]) {
+            gScreenWidth = 440; gScreenHeight = 956;
+        } else if ([gMachineIdObj isEqualToString:@"iPhone17,1"] || [gMachineIdObj isEqualToString:@"iPhone16,1"]) {
+            gScreenWidth = 402; gScreenHeight = 874;
+        } else if ([gMachineIdObj isEqualToString:@"iPhone17,3"] || [gMachineIdObj isEqualToString:@"iPhone15,4"] ||
+                   [gMachineIdObj isEqualToString:@"iPhone15,2"] || [gMachineIdObj isEqualToString:@"iPhone14,7"]) {
+            gScreenWidth = 393; gScreenHeight = 852;
+        } else if ([gMachineIdObj isEqualToString:@"iPhone12,1"] || [gMachineIdObj isEqualToString:@"iPhone11,8"]) {
+            gScreenWidth = 414; gScreenHeight = 896;
+        } else {
+            gScreenWidth = 393; gScreenHeight = 852;
+        }
+    }
+    gScreenScale = [gTargetScaleStr containsString:@"2.00"] ? 2.0f : 3.0f;
+    gCpuCores = ([gMachineIdObj hasPrefix:@"iPhone9,"] || [gMachineIdObj hasPrefix:@"iPhone8,"]) ? 4 : 6;
+    gRamGB = ramGB;
+    gGpuNameObj = ZTechGPUNameForMachine(gMachineIdObj);
+    gWebKitUserAgent = [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
+
+    ZTechRebuildCachedProxyState(gActiveProxyObj);
+}
+
+static NSDictionary *ZTechLoadProfileOnce(void) {
+    if (gCachedProfile) {
+        return gCachedProfile;
+    }
+
+    NSMutableArray<NSString *> *allPaths = [NSMutableArray array];
+    const char *homeC = getenv("HOME");
+    if (homeC && homeC[0] != '\0') {
+        NSString *home = [NSString stringWithUTF8String:homeC];
+        if (home.length > 0) {
+            [allPaths addObject:[home stringByAppendingPathComponent:@"Documents/_zt_active_profile.plist"]];
+            [allPaths addObject:[home stringByAppendingPathComponent:@"Library/Preferences/com.ztech.profile.plist"]];
+        }
+    }
+    [allPaths addObjectsFromArray:@[
+        @"/var/jb/var/mobile/Library/Preferences/com.ztech.profile.plist",
+        @"/var/mobile/Library/Preferences/com.ztech.profile.plist",
+        @"/var/jb/Library/Preferences/ZTechShared/com.ztech.profile.plist",
+        @"/Library/Preferences/ZTechShared/com.ztech.profile.plist",
+        @"/var/tmp/com.ztech.profile.plist"
+    ]];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDictionary *newestDict = nil;
+    NSDate *newestDate = nil;
+
+    for (NSString *p in allPaths) {
+        if (![fm fileExistsAtPath:p]) continue;
+        NSDictionary *attrs = [fm attributesOfItemAtPath:p error:nil];
+        NSDate *mod = attrs[NSFileModificationDate];
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
+        if (d && [d isKindOfClass:[NSDictionary class]] && d.count > 0) {
+            if (!newestDate || (mod && [mod compare:newestDate] == NSOrderedDescending)) {
+                newestDate = mod ?: [NSDate distantPast];
+                newestDict = d;
+            }
+        }
+    }
+
+    if (newestDict) {
+        NSDictionary *norm = ZTechNormalizeProfile(newestDict);
+        ZTechApplyCachedProfileValues(norm);
+        return gCachedProfile;
+    }
+
+    NSDictionary *norm = ZTechNormalizeProfile(nil);
+    ZTechApplyCachedProfileValues(norm);
+    return gCachedProfile;
+}
+
+#pragma mark - Metal Driver Protection & Lock-Free Pure C Function Hooks
+
+static inline BOOL ZTechIsMetalCaller(const void *retAddr) {
+    if (!retAddr) return NO;
+    Dl_info info;
+    if (dladdr(retAddr, &info) != 0 && info.dli_fname) {
+        const char *fn = info.dli_fname;
+        if (strstr(fn, "Metal") != NULL ||
+            strstr(fn, "AGX") != NULL ||
+            strstr(fn, "IOAccelerator") != NULL) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+static inline BOOL ZTechIsSafeASCIIString(const void *buf, size_t len) {
+    if (!buf || len <= 1 || len > 256) return NO;
+    const unsigned char *p = (const unsigned char *)buf;
+    size_t i = 0;
+    while (i < len) {
+        if (p[i] == '\0') {
+            return (i > 0);
+        }
+        if (p[i] < 32 && p[i] != '\t' && p[i] != '\n' && p[i] != '\r') return NO;
+        if (p[i] > 126) return NO;
+        i++;
+    }
+    return NO;
+}
+
+static int (*orig_uname)(struct utsname *buf) = NULL;
+static int hooked_uname(struct utsname *buf) {
+    if (buf == NULL) return -1;
+    if (gHasRealUts) {
+        memcpy(buf, &gRealUts, sizeof(struct utsname));
+    } else {
+        memset(buf, 0, sizeof(struct utsname));
+        strncpy(buf->sysname, "Darwin", sizeof(buf->sysname) - 1);
+        strncpy(buf->nodename, "iPhone", sizeof(buf->nodename) - 1);
+        strncpy(buf->release, "21.5.0", sizeof(buf->release) - 1);
+        strncpy(buf->version, "Darwin Kernel Version 21.5.0", sizeof(buf->version) - 1);
+        strncpy(buf->machine, gRealMachineCStr, sizeof(buf->machine) - 1);
+    }
+    if (gMachineCStr[0] != '\0') {
+        strncpy(buf->machine, gMachineCStr, sizeof(buf->machine) - 1);
+        buf->machine[sizeof(buf->machine) - 1] = '\0';
+    }
+    // Clean standard iOS nodename (POSIX host)
+    strncpy(buf->nodename, "iPhone", sizeof(buf->nodename) - 1);
+    buf->nodename[sizeof(buf->nodename) - 1] = '\0';
+    // Spoof Darwin release and kernel version dynamically matching target iOS and machine SoC
+    const char *rel = ZTechDarwinReleaseForIos(gIosVersionObj);
+    strncpy(buf->release, rel, sizeof(buf->release) - 1);
+    buf->release[sizeof(buf->release) - 1] = '\0';
+    ZTechFormatDarwinVersion(buf->version, sizeof(buf->version), gMachineIdObj, gIosVersionObj);
+    buf->version[sizeof(buf->version) - 1] = '\0';
+    return 0;
+}
+
+static int (*orig_sysctl)(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) = NULL;
+static int hooked_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    if (name != NULL && namelen >= 2) {
+        if (name[0] == CTL_HW) {
+            if (name[1] == HW_MACHINE) {
+                size_t len = strlen(gMachineCStr) + 1;
+                if (oldp != NULL && oldlenp != NULL) {
+                    size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                    memcpy(oldp, gMachineCStr, copyLen);
+                }
+                if (oldlenp != NULL) {
+                    *oldlenp = len;
+                }
+                return 0;
+            } else if (name[1] == HW_MODEL) {
+                if (!ZTechIsMetalCaller(__builtin_return_address(0))) {
+                    size_t len = strlen(gBoardIdCStr) + 1;
+                    if (oldp != NULL && oldlenp != NULL) {
+                        size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                        memcpy(oldp, gBoardIdCStr, copyLen);
+                    }
+                    if (oldlenp != NULL) {
+                        *oldlenp = len;
+                    }
+                    return 0;
+                }
+            } else if (name[1] == HW_MEMSIZE) {
+                if (oldlenp != NULL) {
+                    if (oldp != NULL) {
+                        size_t copyLen = (*oldlenp < sizeof(uint64_t)) ? *oldlenp : sizeof(uint64_t);
+                        memcpy(oldp, &gRamBytes, copyLen);
+                    }
+                    *oldlenp = sizeof(uint64_t);
+                    return 0;
+                }
+            } else if (name[1] == HW_PHYSMEM) {
+                if (oldlenp != NULL) {
+                    if (oldp != NULL) {
+                        if (*oldlenp >= sizeof(uint64_t)) {
+                            memcpy(oldp, &gRamBytes, sizeof(uint64_t));
+                            *oldlenp = sizeof(uint64_t);
+                        } else {
+                            uint32_t ram32 = (gRamBytes > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (uint32_t)gRamBytes;
+                            size_t copyLen = (*oldlenp < sizeof(uint32_t)) ? *oldlenp : sizeof(uint32_t);
+                            memcpy(oldp, &ram32, copyLen);
+                            *oldlenp = sizeof(uint32_t);
+                        }
+                    } else {
+                        *oldlenp = sizeof(uint64_t);
+                    }
+                    return 0;
+                }
+            } else if (name[1] == HW_NCPU || name[1] == HW_AVAILCPU) {
+                if (oldlenp != NULL) {
+                    if (oldp != NULL) {
+                        int cores = ([gMachineIdObj hasPrefix:@"iPhone9,"] || [gMachineIdObj hasPrefix:@"iPhone8,"]) ? 4 : 6;
+                        size_t copyLen = (*oldlenp < sizeof(int)) ? *oldlenp : sizeof(int);
+                        memcpy(oldp, &cores, copyLen);
+                    }
+                    *oldlenp = sizeof(int);
+                    return 0;
+                }
+            }
+        } else if (name[0] == CTL_KERN) {
+            if (name[1] == KERN_HOSTNAME) {
+                const char *host = "iPhone";
+                size_t len = strlen(host) + 1;
+                if (oldp != NULL && oldlenp != NULL) {
+                    size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                    memcpy(oldp, host, copyLen);
+                }
+                if (oldlenp != NULL) *oldlenp = len;
+                return 0;
+            } else if (name[1] == KERN_OSVERSION) {
+                const char *build = ZTechBuildVersionForIos(gIosVersionObj);
+                size_t len = strlen(build) + 1;
+                if (oldp != NULL && oldlenp != NULL) {
+                    size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                    memcpy(oldp, build, copyLen);
+                }
+                if (oldlenp != NULL) *oldlenp = len;
+                return 0;
+            } else if (name[1] == KERN_OSRELEASE) {
+                const char *rel = ZTechDarwinReleaseForIos(gIosVersionObj);
+                size_t len = strlen(rel) + 1;
+                if (oldp != NULL && oldlenp != NULL) {
+                    size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                    memcpy(oldp, rel, copyLen);
+                }
+                if (oldlenp != NULL) *oldlenp = len;
+                return 0;
+            } else if (name[1] == KERN_VERSION) {
+                char kver[256] = {0};
+                ZTechFormatDarwinVersion(kver, sizeof(kver), gMachineIdObj, gIosVersionObj);
+                size_t len = strlen(kver) + 1;
+                if (oldp != NULL && oldlenp != NULL) {
+                    size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                    memcpy(oldp, kver, copyLen);
+                }
+                if (oldlenp != NULL) *oldlenp = len;
+                return 0;
+            }
+        }
+    }
+    int ret = 0;
+    if (orig_sysctl) {
+        ret = orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
+    } else {
+        ret = __sysctl(name, namelen, oldp, oldlenp, newp, newlen);
+    }
+    // Safe: No blind strstr overwrites of kernel memory
+    return ret;
+}
+
+static int (*orig_sysctlbyname)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) = NULL;
+static int hooked_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    if (name != NULL) {
+        if (strcmp(name, "hw.machine") == 0 || strcmp(name, "hw.product") == 0) {
+            size_t len = strlen(gMachineCStr) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, gMachineCStr, copyLen);
+            }
+            if (oldlenp != NULL) {
+                *oldlenp = len;
+            }
+            return 0;
+        } else if (strcmp(name, "hw.model") == 0 || strcmp(name, "hw.targettype") == 0) {
+            if (!ZTechIsMetalCaller(__builtin_return_address(0))) {
+                size_t len = strlen(gBoardIdCStr) + 1;
+                if (oldp != NULL && oldlenp != NULL) {
+                    size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                    memcpy(oldp, gBoardIdCStr, copyLen);
+                }
+                if (oldlenp != NULL) {
+                    *oldlenp = len;
+                }
+                return 0;
+            }
+        } else if (strcmp(name, "kern.osversion") == 0) {
+            const char *build = ZTechBuildVersionForIos(gIosVersionObj);
+            size_t len = strlen(build) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, build, copyLen);
+                if (copyLen > 0) ((char *)oldp)[copyLen - 1] = '\0';
+            }
+            if (oldlenp != NULL) *oldlenp = len;
+            return 0;
+        } else if (strcmp(name, "kern.osproductversion") == 0) {
+            const char *ver = [gIosVersionObj UTF8String] ?: "18.2.1";
+            size_t len = strlen(ver) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, ver, copyLen);
+            }
+            if (oldlenp != NULL) *oldlenp = len;
+            return 0;
+        } else if (strcmp(name, "kern.osrelease") == 0) {
+            const char *rel = "24.2.0";
+            size_t len = strlen(rel) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, rel, copyLen);
+                if (copyLen > 0) ((char *)oldp)[copyLen - 1] = '\0';
+            }
+            if (oldlenp != NULL) *oldlenp = len;
+            return 0;
+        } else if (strcmp(name, "kern.version") == 0) {
+            char kver[256] = {0};
+            snprintf(kver, sizeof(kver), "Darwin Kernel Version 24.2.0: Fri Nov 15 00:00:00 PST 2024; root:xnu-11215.61.5~2/RELEASE_ARM64_%s", gBoardIdCStr);
+            size_t len = strlen(kver) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, kver, copyLen);
+                if (copyLen > 0) ((char *)oldp)[copyLen - 1] = '\0';
+            }
+            if (oldlenp != NULL) *oldlenp = len;
+            return 0;
+        } else if (strcmp(name, "kern.hostname") == 0) {
+            const char *host = "iPhone";
+            size_t len = strlen(host) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, host, copyLen);
+            }
+            if (oldlenp != NULL) *oldlenp = len;
+            return 0;
+        } else if (strcmp(name, "hw.memsize") == 0) {
+            if (oldlenp != NULL) {
+                if (oldp != NULL) {
+                    size_t copyLen = (*oldlenp < sizeof(uint64_t)) ? *oldlenp : sizeof(uint64_t);
+                    memcpy(oldp, &gRamBytes, copyLen);
+                }
+                *oldlenp = sizeof(uint64_t);
+                return 0;
+            }
+        } else if (strcmp(name, "hw.physmem") == 0) {
+            if (oldlenp != NULL) {
+                if (oldp != NULL) {
+                    if (*oldlenp >= sizeof(uint64_t)) {
+                        memcpy(oldp, &gRamBytes, sizeof(uint64_t));
+                        *oldlenp = sizeof(uint64_t);
+                    } else {
+                        uint32_t ram32 = (gRamBytes > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (uint32_t)gRamBytes;
+                        size_t copyLen = (*oldlenp < sizeof(uint32_t)) ? *oldlenp : sizeof(uint32_t);
+                        memcpy(oldp, &ram32, copyLen);
+                        *oldlenp = sizeof(uint32_t);
+                    }
+                } else {
+                    *oldlenp = sizeof(uint64_t);
+                }
+                return 0;
+            }
+        } else if (strcmp(name, "hw.ncpu") == 0 || strcmp(name, "hw.physicalcpu") == 0 || strcmp(name, "hw.logicalcpu") == 0) {
+            if (oldlenp != NULL) {
+                if (oldp != NULL) {
+                    int cores = ([gMachineIdObj hasPrefix:@"iPhone9,"] || [gMachineIdObj hasPrefix:@"iPhone8,"]) ? 4 : 6;
+                    size_t copyLen = (*oldlenp < sizeof(int)) ? *oldlenp : sizeof(int);
+                    memcpy(oldp, &cores, copyLen);
+                }
+                *oldlenp = sizeof(int);
+                return 0;
+            }
+        } else if (strcmp(name, "machdep.cpu.brand_string") == 0) {
+            const char *soc = ZTechCpuBrandStringForMachine(gMachineIdObj);
+            size_t len = strlen(soc) + 1;
+            if (oldp != NULL && oldlenp != NULL) {
+                size_t copyLen = (*oldlenp < len) ? *oldlenp : len;
+                memcpy(oldp, soc, copyLen);
+            }
+            if (oldlenp != NULL) {
+                *oldlenp = len;
+            }
+            return 0;
+        }
+
+        int ret = 0;
+        if (orig_sysctlbyname) {
+            ret = orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
+        } else {
+            int name2oid_oid[2] = { 0, 3 };
+            int real_oid[CTL_MAXNAME + 2];
+            size_t oidlen = sizeof(real_oid);
+            int err = __sysctl(name2oid_oid, 2, real_oid, &oidlen, (void *)name, strlen(name));
+            if (err < 0) return err;
+            ret = __sysctl(real_oid, (u_int)(oidlen / sizeof(int)), oldp, oldlenp, newp, newlen);
+        }
+        // Safe: No blind strstr overwrites of kernel memory
+        return ret;
+    }
+    return -1;
+}
+
+typedef CFTypeRef (*zt_MGCopyAnswerWithError_t)(CFStringRef prop, CFDictionaryRef options, int *error);
+static zt_MGCopyAnswerWithError_t orig_MGCopyAnswerWithError = NULL;
+typedef CFTypeRef (*zt_MGCopyAnswer_t)(CFStringRef prop);
+static zt_MGCopyAnswer_t orig_MGCopyAnswer = NULL;
+
+
+static CFTypeRef ZTechGetSpoofedMGCopyAnswer(CFStringRef prop) {
+    if (!prop) return NULL;
+    uintptr_t p = (uintptr_t)prop;
+    if (p < 0x10000ULL || (p & 0x7) != 0) return NULL;
+    @try {
+        if (CFGetTypeID(prop) != CFStringGetTypeID()) return NULL;
+    } @catch (NSException *e) {
+        return NULL;
+    }
+
+    if (CFEqual(prop, CFSTR("ProductType")) || CFEqual(prop, CFSTR("hw-machine")) || CFEqual(prop, CFSTR("device-name"))) {
+        return (__bridge_retained CFTypeRef)[gMachineIdObj copy];
+    }
+    if (CFEqual(prop, CFSTR("HWModelStr")) || CFEqual(prop, CFSTR("HardwareModel"))) {
+        return (__bridge_retained CFTypeRef)[[NSString stringWithUTF8String:gBoardIdCStr] copy];
+    }
+    if (CFEqual(prop, CFSTR("MarketingNameString")) || CFEqual(prop, CFSTR("marketing-name")) ||
+        CFEqual(prop, CFSTR("DeviceName")) || CFEqual(prop, CFSTR("UserAssignedDeviceName"))) {
+        return (__bridge_retained CFTypeRef)[gModelNameObj copy];
+    }
+    if (CFEqual(prop, CFSTR("ProductVersion"))) {
+        return (__bridge_retained CFTypeRef)[gIosVersionObj copy];
+    }
+    if (CFEqual(prop, CFSTR("BuildVersion"))) {
+        return (__bridge_retained CFTypeRef)[[NSString stringWithUTF8String:ZTechBuildVersionForIos(gIosVersionObj)] copy];
+    }
+    if (CFEqual(prop, CFSTR("UniqueDeviceID")) || CFEqual(prop, CFSTR("UniqueDeviceIDData"))) {
+        NSString *udid = [[gUuidObj stringByReplacingOccurrencesOfString:@"-" withString:@""] lowercaseString];
+        if (udid.length < 40) {
+            udid = [udid stringByPaddingToLength:40 withString:@"0" startingAtIndex:0];
+        }
+        if (CFEqual(prop, CFSTR("UniqueDeviceIDData"))) {
+            return (__bridge_retained CFTypeRef)[udid dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        return (__bridge_retained CFTypeRef)[udid copy];
+    }
+    if (CFEqual(prop, CFSTR("SerialNumber"))) {
+        return (__bridge_retained CFTypeRef)[gSerialNumberObj copy];
+    }
+    if (CFEqual(prop, CFSTR("WifiAddress"))) {
+        return (__bridge_retained CFTypeRef)[gWifiMacObj copy];
+    }
+    if (CFEqual(prop, CFSTR("BluetoothAddress"))) {
+        return (__bridge_retained CFTypeRef)[gBtMacObj copy];
+    }
+    if (CFEqual(prop, CFSTR("InternationalMobileEquipmentIdentity")) || CFEqual(prop, CFSTR("IMEI"))) {
+        return (__bridge_retained CFTypeRef)[gImeiObj copy];
+    }
+    if (CFEqual(prop, CFSTR("ModelNumber"))) {
+        return (__bridge_retained CFTypeRef)[@"MU793VN/A" copy];
+    }
+    if (CFEqual(prop, CFSTR("RegionInfo"))) {
+        return (__bridge_retained CFTypeRef)[@"VN/A" copy];
+    }
+    if (CFEqual(prop, CFSTR("RegulatoryModelNumber"))) {
+        return (__bridge_retained CFTypeRef)[@"A3296" copy];
+    }
+    return NULL;
+}
+
+static CFTypeRef ZTechInspectAndFilterMGResult(CFTypeRef res) {
+    if (!res) return NULL;
+    uintptr_t p = (uintptr_t)res;
+    if (p < 0x10000ULL || (p & 0x7) != 0) return res;
+    @try {
+        if (CFGetTypeID(res) == CFStringGetTypeID()) {
+            NSString *val = (__bridge NSString *)res;
+            if ([val hasPrefix:@"iPhone"] && [val containsString:@","] && ![val isEqualToString:gMachineIdObj]) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[gMachineIdObj copy];
+            }
+            if ((gRealMarketingObj.length > 0 && [val localizedCaseInsensitiveContainsString:gRealMarketingObj]) ||
+                ([val hasPrefix:@"iPhone "] && ![val isEqualToString:gModelNameObj])) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[gModelNameObj copy];
+            }
+            if (gRealBoardIdObj.length > 0 && [val isEqualToString:gRealBoardIdObj]) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[[NSString stringWithUTF8String:gBoardIdCStr] copy];
+            }
+            if (gRealIosVersionObj.length > 0 && ([val isEqualToString:gRealIosVersionObj] || [val hasPrefix:gRealIosVersionObj])) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[gIosVersionObj copy];
+            }
+        }
+    } @catch (NSException *e) {}
+    return res;
+}
+
+static CFTypeRef hooked_MGCopyAnswer(CFStringRef prop) {
+    CFTypeRef fake = ZTechGetSpoofedMGCopyAnswer(prop);
+    if (fake) {
+        return fake;
+    }
+    if (orig_MGCopyAnswer) {
+        return orig_MGCopyAnswer(prop);
+    } else if (orig_MGCopyAnswerWithError) {
+        return orig_MGCopyAnswerWithError(prop, NULL, NULL);
+    }
+    return NULL;
+}
+
+static CFTypeRef hooked_MGCopyAnswerWithError(CFStringRef prop, CFDictionaryRef options, int *error) {
+    CFTypeRef fake = ZTechGetSpoofedMGCopyAnswer(prop);
+    if (fake) {
+        if (error) *error = 0;
+        return fake;
+    }
+    if (orig_MGCopyAnswerWithError) {
+        return orig_MGCopyAnswerWithError(prop, options, error);
+    } else if (orig_MGCopyAnswer) {
+        return orig_MGCopyAnswer(prop);
+    }
+    return NULL;
+}
+
+typedef CFStringRef (*zt_SCDynamicStoreCopyComputerName_t)(CFAllocatorRef allocator, CFStringEncoding *encoding);
+static zt_SCDynamicStoreCopyComputerName_t orig_SCDynamicStoreCopyComputerName = NULL;
+static CFStringRef hooked_SCDynamicStoreCopyComputerName(CFAllocatorRef allocator, CFStringEncoding *encoding) {
+    if (encoding) *encoding = kCFStringEncodingUTF8;
+    return (__bridge_retained CFStringRef)(gModelNameObj ?: @"iPhone");
+}
+
+typedef CFStringRef (*zt_SCDynamicStoreCopyLocalHostName_t)(CFAllocatorRef allocator);
+static zt_SCDynamicStoreCopyLocalHostName_t orig_SCDynamicStoreCopyLocalHostName = NULL;
+static CFStringRef hooked_SCDynamicStoreCopyLocalHostName(CFAllocatorRef allocator) {
+    return CFSTR("iPhone");
+}
+
+typedef CFDictionaryRef (*zt_CFCopySystemVersionDictionary_t)(void);
+static zt_CFCopySystemVersionDictionary_t orig_CFCopySystemVersionDictionary = NULL;
+static CFDictionaryRef hooked_CFCopySystemVersionDictionary(void) {
+    CFDictionaryRef orig = orig_CFCopySystemVersionDictionary ? orig_CFCopySystemVersionDictionary() : NULL;
+    NSMutableDictionary *dict = orig ? [(__bridge NSDictionary *)orig mutableCopy] : [NSMutableDictionary dictionary];
+    dict[@"ProductVersion"] = gIosVersionObj ?: @"18.2.1";
+    dict[@"ProductBuildVersion"] = [NSString stringWithUTF8String:ZTechBuildVersionForIos(gIosVersionObj)];
+    dict[@"ProductName"] = @"iPhone OS";
+    dict[@"ProductUserVisibleVersion"] = gIosVersionObj ?: @"18.2.1";
+    if (orig) CFRelease(orig);
+    return (__bridge_retained CFDictionaryRef)dict;
+}
+
+typedef CFTypeRef (*zt_IORegistryEntryCreateCFProperty_t)(uint32_t entry, CFStringRef key, CFAllocatorRef allocator, uint32_t options);
+static zt_IORegistryEntryCreateCFProperty_t orig_IORegistryEntryCreateCFProperty = NULL;
+
+static CFTypeRef hooked_IORegistryEntryCreateCFProperty(uint32_t entry, CFStringRef key, CFAllocatorRef allocator, uint32_t options) {
+    if (key != NULL && CFGetTypeID(key) == CFStringGetTypeID()) {
+        if (CFEqual(key, CFSTR("product-name")) || CFEqual(key, CFSTR("model"))) {
+            return (__bridge_retained CFTypeRef)[gMachineIdObj dataUsingEncoding:NSUTF8StringEncoding];
+        }
+        if (CFEqual(key, CFSTR("board-id"))) {
+            return (__bridge_retained CFTypeRef)[[NSString stringWithUTF8String:gBoardIdCStr] dataUsingEncoding:NSUTF8StringEncoding];
+        }
+    }
+    CFTypeRef res = orig_IORegistryEntryCreateCFProperty ? orig_IORegistryEntryCreateCFProperty(entry, key, allocator, options) : NULL;
+    if (res != NULL) {
+        if (CFGetTypeID(res) == CFStringGetTypeID()) {
+            NSString *s = (__bridge NSString *)res;
+            if ([s hasPrefix:@"iPhone"] && [s containsString:@","] && ![s isEqualToString:gMachineIdObj]) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[gMachineIdObj copy];
+            }
+            if ((gRealMarketingObj.length > 0 && [s localizedCaseInsensitiveContainsString:gRealMarketingObj]) ||
+                ([s hasPrefix:@"iPhone "] && ![s isEqualToString:gModelNameObj])) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[gModelNameObj copy];
+            }
+            if (gRealBoardIdObj.length > 0 && [s isEqualToString:gRealBoardIdObj]) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[[NSString stringWithUTF8String:gBoardIdCStr] copy];
+            }
+        } else if (CFGetTypeID(res) == CFDataGetTypeID()) {
+            NSData *d = (__bridge NSData *)res;
+            NSString *s = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+            if (s && [s hasPrefix:@"iPhone"] && [s containsString:@","] && ![s hasPrefix:gMachineIdObj]) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[[gMachineIdObj stringByAppendingString:@"\0"] dataUsingEncoding:NSUTF8StringEncoding];
+            }
+            if (s && gRealBoardIdObj.length > 0 && [s hasPrefix:gRealBoardIdObj]) {
+                CFRelease(res);
+                return (__bridge_retained CFTypeRef)[[[NSString stringWithUTF8String:gBoardIdCStr] stringByAppendingString:@"\0"] dataUsingEncoding:NSUTF8StringEncoding];
+            }
+        }
+    }
+    return res;
+}
+
+// ElleKit MSHookFunction safely hooks uname, sysctl, sysctlbyname, MGCopyAnswer,
+// MGCopyAnswerWithError, SCDynamicStore and IOKit at function entry points.
+// Manual Mach-O GOT rebinding / _dyld_register_func_for_add_image is intentionally
+// omitted to prevent dyld chained fixups corruption (SIGBUS/EXC_BAD_ACCESS) on iOS 15+.
+
+static NSString *ZTechGPUNameForMachine(NSString *machine) {
+    if (!machine || machine.length == 0) return @"Apple A10 Fusion GPU";
+    if ([machine hasPrefix:@"iPhone17,1"] || [machine hasPrefix:@"iPhone17,2"]) return @"Apple A18 Pro GPU";
+    if ([machine hasPrefix:@"iPhone17,"]) return @"Apple A18 GPU";
+    if ([machine hasPrefix:@"iPhone16,"]) return @"Apple A17 Pro GPU";
+    if ([machine hasPrefix:@"iPhone15,2"] || [machine hasPrefix:@"iPhone15,3"]) return @"Apple A16 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone15,"]) return @"Apple A15 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone14,"]) return @"Apple A15 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone13,"]) return @"Apple A14 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone12,"]) return @"Apple A13 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone11,"]) return @"Apple A12 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone10,"]) return @"Apple A11 Bionic GPU";
+    if ([machine hasPrefix:@"iPhone9,"]) return @"Apple A10 Fusion GPU";
+    if ([machine hasPrefix:@"iPhone8,"]) return @"Apple A9 GPU";
+    return @"Apple A10 Fusion GPU";
+}
+
+static NSString *(*orig_MTLDevice_name)(id, SEL) = NULL;
+static NSString *swizzled_MTLDevice_name(id self, SEL _cmd) {
+    return ZTechGPUNameForMachine(gMachineIdObj);
+}
+
+static NSString *(*orig_carrierName)(id, SEL) = NULL;
+static NSString *swizzled_carrierName(id self, SEL _cmd) {
+    return gCarrierNameObj ?: @"Viettel";
+}
+
+static NSString *(*orig_isoCountryCode)(id, SEL) = NULL;
+static NSString *swizzled_isoCountryCode(id self, SEL _cmd) {
+    return @"vn";
+}
+
+static NSString *(*orig_mobileCountryCode)(id, SEL) = NULL;
+static NSString *swizzled_mobileCountryCode(id self, SEL _cmd) {
+    return @"452";
+}
+
+static NSString *(*orig_mobileNetworkCode)(id, SEL) = NULL;
+static NSString *swizzled_mobileNetworkCode(id self, SEL _cmd) {
+    if ([gCarrierNameObj isEqualToString:@"MobiFone"]) return @"01";
+    if ([gCarrierNameObj isEqualToString:@"Vinaphone"]) return @"02";
+    if ([gCarrierNameObj isEqualToString:@"Vietnamobile"]) return @"05";
+    return @"04";
+}
+
+static NSString *(*orig_systemVersion)(id, SEL) = NULL;
+static NSString *swizzled_systemVersion(id self, SEL _cmd) {
+    return gIosVersionObj ?: @"15.8.4";
+}
+
+static NSString *(*orig_deviceName)(id, SEL) = NULL;
+static NSString *swizzled_deviceName(id self, SEL _cmd) {
+    return gModelNameObj ?: @"iPhone 7";
+}
+
+static NSString *swizzled_rawDeviceName(id self, SEL _cmd) {
+    return gMachineIdObj ?: @"iPhone17,2";
+}
+
+static float (*orig_batteryLevel)(id, SEL) = NULL;
+static float swizzled_batteryLevel(id self, SEL _cmd) {
+    return gBatteryFloat;
+}
+
+static NSUUID *(*orig_identifierForVendor)(id, SEL) = NULL;
+static NSUUID *swizzled_identifierForVendor(id self, SEL _cmd) {
+    if (gCachedVendorUUID) {
+        return gCachedVendorUUID;
+    }
+    return [NSUUID UUID];
+}
+
+static NSOperatingSystemVersion (*orig_osVersion)(id, SEL) = NULL;
+static NSOperatingSystemVersion swizzled_osVersion(id self, SEL _cmd) {
+    NSArray<NSString *> *parts = [gIosVersionObj componentsSeparatedByString:@"."];
+    NSOperatingSystemVersion v = {18, 2, 1};
+    if (parts.count > 0 && [parts[0] integerValue] >= 16) v.majorVersion = [parts[0] integerValue];
+    if (parts.count > 1) v.minorVersion = [parts[1] integerValue];
+    if (parts.count > 2) v.patchVersion = [parts[2] integerValue];
+    return v;
+}
+
+static NSString *(*orig_osVersionString)(id, SEL) = NULL;
+static NSString *swizzled_osVersionString(id self, SEL _cmd) {
+    return [NSString stringWithFormat:@"Version %@ (Build 22C152)", gIosVersionObj ?: @"18.2.1"];
+}
+
+static unsigned long long (*orig_physicalMemory)(id, SEL) = NULL;
+static unsigned long long swizzled_physicalMemory(id self, SEL _cmd) {
+    return (unsigned long long)gRamBytes;
+}
+
+static SEL gZTechOrigDevInfoSel = NULL;
+static id swizzled_deviceInfoForKey(id self, SEL _cmd, NSString *key) {
+    if (key && [key isKindOfClass:[NSString class]]) {
+        if ([key isEqualToString:@"ProductType"] || [key isEqualToString:@"hw-machine"] || [key isEqualToString:@"device-name"]) {
+            return gMachineIdObj ?: @"iPhone17,2";
+        }
+        if ([key isEqualToString:@"HWModelStr"] || [key isEqualToString:@"HardwareModel"]) {
+            return [NSString stringWithUTF8String:gBoardIdCStr];
+        }
+        if ([key isEqualToString:@"DeviceName"] || [key isEqualToString:@"UserAssignedDeviceName"] ||
+            [key isEqualToString:@"MarketingNameString"] || [key isEqualToString:@"marketing-name"]) {
+            return gModelNameObj ?: @"iPhone 7";
+        }
+        if ([key isEqualToString:@"ProductVersion"]) {
+            return gIosVersionObj ?: @"15.8.4";
+        }
+        if ([key isEqualToString:@"BuildVersion"]) {
+            return [NSString stringWithUTF8String:ZTechBuildVersionForIos(gIosVersionObj)];
+        }
+    }
+    if (gZTechOrigDevInfoSel && [self respondsToSelector:gZTechOrigDevInfoSel]) {
+        return ((id (*)(id, SEL, id))objc_msgSend)(self, gZTechOrigDevInfoSel, key);
+    }
+    return nil;
+}
+
+static NSString *swizzled_model(id self, SEL _cmd) {
+    return @"iPhone";
+}
+
+static SEL gZTechOrigDefCfgSel = NULL;
+static SEL gZTechOrigEphCfgSel = NULL;
+static SEL gZTechOrigSetHdrSel = NULL;
+
+static NSString *ZTechSanitizeHeaderString(NSString *v) {
+    if (!v || ![v isKindOfClass:[NSString class]] || v.length == 0) return v;
+
+    // 1. Real machine model ID replacement
+    if (gRealMachineObj && gRealMachineObj.length > 0 && [v localizedCaseInsensitiveContainsString:gRealMachineObj]) {
+        v = [v stringByReplacingOccurrencesOfString:gRealMachineObj withString:(gMachineIdObj ?: @"iPhone17,2")];
+    }
+    // Universal regex replacement for any iPhone\d+,\d+
+    static NSRegularExpression *machRegex = nil;
+    static dispatch_once_t machRegexOnce;
+    dispatch_once(&machRegexOnce, ^{
+        machRegex = [NSRegularExpression regularExpressionWithPattern:@"iPhone\\d+,\\d+" options:0 error:nil];
+    });
+    if (machRegex) {
+        v = [machRegex stringByReplacingMatchesInString:v options:0 range:NSMakeRange(0, v.length) withTemplate:(gMachineIdObj ?: @"iPhone17,2")];
+    }
+
+    // 2. Real marketing name replacement
+    if (gRealMarketingObj && gRealMarketingObj.length > 0 && [v localizedCaseInsensitiveContainsString:gRealMarketingObj]) {
+        v = [v stringByReplacingOccurrencesOfString:gRealMarketingObj withString:(gModelNameObj ?: @"iPhone 16 Pro Max")];
+    }
+
+    // 3. Real iOS version replacement
+    if (gRealIosVersionObj && gRealIosVersionObj.length > 0 && [v containsString:gRealIosVersionObj]) {
+        v = [v stringByReplacingOccurrencesOfString:gRealIosVersionObj withString:(gIosVersionObj ?: @"18.2.1")];
+    }
+
+    // 4. Real iOS underscore version replacement
+    if (gRealIosUnderscoreObj && gRealIosUnderscoreObj.length > 0 && [v containsString:gRealIosUnderscoreObj]) {
+        v = [v stringByReplacingOccurrencesOfString:gRealIosUnderscoreObj withString:(gTargetIosUnderscoreObj ?: @"18_2_1")];
+    }
+
+    // 5. Dynamic scale replacement
+    if (gRealScaleStr && gTargetScaleStr && ![gRealScaleStr isEqualToString:gTargetScaleStr]) {
+        if ([v containsString:gRealScaleStr]) {
+            v = [v stringByReplacingOccurrencesOfString:gRealScaleStr withString:gTargetScaleStr];
+        }
+    }
+
+    return v;
+}
+
+static void ZTechSanitizeHeadersDict(NSMutableDictionary *headers) {
+    if (!headers) return;
+    for (NSString *key in [headers allKeys]) {
+        id val = headers[key];
+        if ([val isKindOfClass:[NSString class]]) {
+            NSString *origV = (NSString *)val;
+            NSString *sanitized = ZTechSanitizeHeaderString(origV);
+            if (![sanitized isEqualToString:origV]) {
+                headers[key] = sanitized;
+            }
+        }
+    }
+}
+
+static void swizzled_setValueForHTTPHeaderField(id self, SEL _cmd, NSString *value, NSString *field) {
+    if (field && [field isKindOfClass:[NSString class]]) {
+        NSString *lowerField = [field lowercaseString];
+        // Anti-leak: Never allow proxy or hop-by-hop headers to leak into application-level HTTPS requests
+        if ([lowerField isEqualToString:@"proxy-authorization"] ||
+            [lowerField isEqualToString:@"proxy-authenticate"] ||
+            [lowerField isEqualToString:@"x-forwarded-for"] ||
+            [lowerField isEqualToString:@"x-forwarded-proto"] ||
+            [lowerField isEqualToString:@"x-real-ip"]) {
+            return;
+        }
+        if (value && [value isKindOfClass:[NSString class]]) {
+            if ([lowerField containsString:@"user-agent"] || [lowerField containsString:@"device"]) {
+                value = ZTechSanitizeHeaderString(value);
+            }
+        }
+    }
+    if (gZTechOrigSetHdrSel && [self respondsToSelector:gZTechOrigSetHdrSel]) {
+        ((void (*)(id, SEL, id, id))objc_msgSend)(self, gZTechOrigSetHdrSel, value, field);
+    }
+}
+
+static NSURLSessionConfiguration *swizzled_defaultSessionConfig(id self, SEL _cmd) {
+    NSURLSessionConfiguration *cfg = nil;
+    if (gZTechOrigDefCfgSel && [self respondsToSelector:gZTechOrigDefCfgSel]) {
+        cfg = ((NSURLSessionConfiguration *(*)(id, SEL))objc_msgSend)(self, gZTechOrigDefCfgSel);
+    }
+    if (cfg) {
+        @try {
+            if (cfg.HTTPAdditionalHeaders) {
+                NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
+                ZTechSanitizeHeadersDict(headers);
+                [headers removeObjectForKey:@"Proxy-Authenticate"];
+                [headers removeObjectForKey:@"X-Forwarded-For"];
+                cfg.HTTPAdditionalHeaders = headers;
+            }
+            if (gProxyEnabled && gCachedProxyDict) {
+                cfg.connectionProxyDictionary = gCachedProxyDict;
+                if (gCachedProxyAuthHeader.length > 0) {
+                    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+                    headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
+                    cfg.HTTPAdditionalHeaders = headers;
+                }
+            }
+        } @catch (NSException *e) {}
+    }
+    return cfg;
+}
+
+static NSURLSessionConfiguration *swizzled_ephemeralSessionConfig(id self, SEL _cmd) {
+    NSURLSessionConfiguration *cfg = nil;
+    if (gZTechOrigEphCfgSel && [self respondsToSelector:gZTechOrigEphCfgSel]) {
+        cfg = ((NSURLSessionConfiguration *(*)(id, SEL))objc_msgSend)(self, gZTechOrigEphCfgSel);
+    }
+    if (cfg) {
+        @try {
+            if (cfg.HTTPAdditionalHeaders) {
+                NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders];
+                ZTechSanitizeHeadersDict(headers);
+                [headers removeObjectForKey:@"Proxy-Authenticate"];
+                [headers removeObjectForKey:@"X-Forwarded-For"];
+                cfg.HTTPAdditionalHeaders = headers;
+            }
+            if (gProxyEnabled && gCachedProxyDict) {
+                cfg.connectionProxyDictionary = gCachedProxyDict;
+                if (gCachedProxyAuthHeader.length > 0) {
+                    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+                    headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
+                    cfg.HTTPAdditionalHeaders = headers;
+                }
+            }
+        } @catch (NSException *e) {}
+    }
+    return cfg;
+}
+
+static SEL gZTechOrigSessionWithCfgSel = NULL;
+static NSURLSession *swizzled_sessionWithConfig(id self, SEL _cmd, NSURLSessionConfiguration *cfg, id delegate, NSOperationQueue *queue) {
+    if (gProxyEnabled && gCachedProxyDict && cfg) {
+        cfg.connectionProxyDictionary = gCachedProxyDict;
+        if (gCachedProxyAuthHeader.length > 0) {
+            NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:cfg.HTTPAdditionalHeaders ?: @{}];
+            headers[@"Proxy-Authorization"] = gCachedProxyAuthHeader;
+            cfg.HTTPAdditionalHeaders = headers;
+        }
+    }
+    if (gZTechOrigSessionWithCfgSel && [self respondsToSelector:gZTechOrigSessionWithCfgSel]) {
+        return ((NSURLSession *(*)(id, SEL, id, id, id))objc_msgSend)(self, gZTechOrigSessionWithCfgSel, cfg, delegate, queue);
+    }
+    return nil;
+}
+
+#pragma mark - Stealth Jailbreak Cloaking & Anti-Detection
+
+static int ZTechIsJailbreakPath(const char *path) {
+    if (!path) return 0;
+    if (strstr(path, "/var/jb") ||
+        strstr(path, "Cydia") || strstr(path, "cydia") ||
+        strstr(path, "Sileo") || strstr(path, "sileo") ||
+        strstr(path, "Zebra") || strstr(path, "zebra") ||
+        strstr(path, "MobileSubstrate") || strstr(path, "mobilesubstrate") ||
+        strstr(path, "ellekit") || strstr(path, "substitute") ||
+        strstr(path, "Substrate") ||
+        strstr(path, "/private/preboot") ||
+        strstr(path, "/bin/bash") || strstr(path, "/bin/sh") || strstr(path, "/bin/zsh") ||
+        strstr(path, "/usr/sbin/sshd") || strstr(path, "/usr/bin/ssh") ||
+        strstr(path, "/etc/apt") || strstr(path, "/var/lib/apt") || strstr(path, "/var/lib/dpkg") ||
+        strstr(path, "/var/log/apt") || strstr(path, "/var/log/dpkg") ||
+        strstr(path, "/var/binpack") || strstr(path, "/var/dropbear") ||
+        strstr(path, "/Library/PreferenceBundles") || strstr(path, "/Library/PreferenceLoader") ||
+        strstr(path, "filza") || strstr(path, "Filza") ||
+        strstr(path, "santander") || strstr(path, "undecimus") ||
+        strstr(path, "frida") || strstr(path, "Frida")) {
+        return 1;
+    }
+    return 0;
+}
+
+static int (*orig_access)(const char *path, int mode) = NULL;
+static int hooked_access(const char *path, int mode) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_access ? orig_access(path, mode) : -1;
+}
+
+static int (*orig_stat)(const char *path, struct stat *buf) = NULL;
+static int hooked_stat(const char *path, struct stat *buf) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_stat ? orig_stat(path, buf) : -1;
+}
+
+static int (*orig_lstat)(const char *path, struct stat *buf) = NULL;
+static int hooked_lstat(const char *path, struct stat *buf) {
+    if (ZTechIsJailbreakPath(path)) {
+        errno = ENOENT;
+        return -1;
+    }
+    return orig_lstat ? orig_lstat(path, buf) : -1;
+}
+
+static pid_t (*orig_fork)(void) = NULL;
+static pid_t hooked_fork(void) {
+    errno = EPERM;
+    return -1;
+}
+
+static const char *(*orig_dyld_get_image_name)(uint32_t image_index) = NULL;
+static const char *hooked_dyld_get_image_name(uint32_t image_index) {
+    const char *name = orig_dyld_get_image_name ? orig_dyld_get_image_name(image_index) : NULL;
+    if (name != NULL) {
+        if (strstr(name, "ZTech") || strstr(name, "ellekit") || strstr(name, "substrate") || strstr(name, "substitute") || strstr(name, "/var/jb")) {
+            return "/System/Library/Frameworks/Foundation.framework/Foundation";
+        }
+    }
+    return name;
+}
+
+static BOOL (*orig_fm_fileExistsAtPath)(id, SEL, NSString *) = NULL;
+static BOOL swizzled_fm_fileExistsAtPath(id self, SEL _cmd, NSString *path) {
+    if (path && [path isKindOfClass:[NSString class]]) {
+        if (ZTechIsJailbreakPath([path UTF8String])) {
+            return NO;
+        }
+    }
+    return orig_fm_fileExistsAtPath ? orig_fm_fileExistsAtPath(self, _cmd, path) : NO;
+}
+
+static BOOL (*orig_fm_fileExistsAtPath_isDir)(id, SEL, NSString *, BOOL *) = NULL;
+static BOOL swizzled_fm_fileExistsAtPath_isDir(id self, SEL _cmd, NSString *path, BOOL *isDir) {
+    if (path && [path isKindOfClass:[NSString class]]) {
+        if (ZTechIsJailbreakPath([path UTF8String])) {
+            if (isDir) *isDir = NO;
+            return NO;
+        }
+    }
+    return orig_fm_fileExistsAtPath_isDir ? orig_fm_fileExistsAtPath_isDir(self, _cmd, path, isDir) : NO;
+}
+
+static uint64_t ZTechGetProfileStorageBytes(void) {
+    if (gRamGB >= 8) {
+        return 256ULL * 1024ULL * 1024ULL * 1024ULL; // 256 GB for Pro 8GB models
+    } else if (gRamGB <= 2) {
+        return 32ULL * 1024ULL * 1024ULL * 1024ULL;  // 32 GB for iPhone 7 / low RAM
+    } else if (gRamGB <= 3) {
+        return 64ULL * 1024ULL * 1024ULL * 1024ULL;  // 64 GB
+    }
+    return 128ULL * 1024ULL * 1024ULL * 1024ULL; // 128 GB default
+}
+
+static NSDictionary *(*orig_fm_attributesOfFileSystemForPath_error)(id, SEL, NSString *, NSError **) = NULL;
+static NSDictionary *swizzled_fm_attributesOfFileSystemForPath_error(id self, SEL _cmd, NSString *path, NSError **error) {
+    NSDictionary *orig = orig_fm_attributesOfFileSystemForPath_error ? orig_fm_attributesOfFileSystemForPath_error(self, _cmd, path, error) : nil;
+    if (!orig && error && *error) {
+        return nil;
+    }
+    NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:orig ?: @{}];
+    
+    uint64_t totalBytes = ZTechGetProfileStorageBytes();
+    uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+    m[NSFileSystemSize] = @(totalBytes);
+    m[NSFileSystemFreeSize] = @(freeBytes);
+    return m;
+}
+
+static int (*orig_statfs)(const char *path, struct statfs *buf) = NULL;
+static int hooked_statfs(const char *path, struct statfs *buf) {
+    int ret = orig_statfs ? orig_statfs(path, buf) : 0;
+    if (ret == 0 && buf != NULL) {
+        uint64_t totalBytes = ZTechGetProfileStorageBytes();
+        uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+        uint32_t bsize = buf->f_bsize > 0 ? buf->f_bsize : 4096;
+        buf->f_blocks = (uint64_t)(totalBytes / bsize);
+        buf->f_bfree = (uint64_t)(freeBytes / bsize);
+        buf->f_bavail = (uint64_t)(freeBytes / bsize);
+    }
+    return ret;
+}
+
+static int (*orig_statfs64)(const char *path, struct statfs *buf) = NULL;
+static int hooked_statfs64(const char *path, struct statfs *buf) {
+    int ret = orig_statfs64 ? orig_statfs64(path, buf) : 0;
+    if (ret == 0 && buf != NULL) {
+        uint64_t totalBytes = ZTechGetProfileStorageBytes();
+        uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+        uint32_t bsize = buf->f_bsize > 0 ? buf->f_bsize : 4096;
+        buf->f_blocks = (uint64_t)(totalBytes / bsize);
+        buf->f_bfree = (uint64_t)(freeBytes / bsize);
+        buf->f_bavail = (uint64_t)(freeBytes / bsize);
+    }
+    return ret;
+}
+
+static int (*orig_statvfs)(const char *path, struct statvfs *buf) = NULL;
+static int hooked_statvfs(const char *path, struct statvfs *buf) {
+    int ret = orig_statvfs ? orig_statvfs(path, buf) : 0;
+    if (ret == 0 && buf != NULL) {
+        uint64_t totalBytes = ZTechGetProfileStorageBytes();
+        uint64_t freeBytes = (uint64_t)(totalBytes * 0.628);
+        unsigned long bsize = buf->f_frsize > 0 ? buf->f_frsize : (buf->f_bsize > 0 ? buf->f_bsize : 4096);
+        buf->f_blocks = (fsblkcnt_t)(totalBytes / bsize);
+        buf->f_bfree = (fsblkcnt_t)(freeBytes / bsize);
+        buf->f_bavail = (fsblkcnt_t)(freeBytes / bsize);
+    }
+    return ret;
+}
+
+static char *(*orig_getenv)(const char *) = NULL;
+static char *hooked_getenv(const char *name) {
+    if (name != NULL) {
+        if (strncmp(name, "DYLD_", 5) == 0) {
+            return NULL;
+        }
+    }
+    return orig_getenv ? orig_getenv(name) : NULL;
+}
+
+#pragma mark - CFNetwork Low-Level Proxy Enforcement & Leak Isolation
+
+static CFDictionaryRef (*orig_CFNetworkCopySystemProxySettings)(void) = NULL;
+static CFDictionaryRef hooked_CFNetworkCopySystemProxySettings(void) {
+    if (gProxyEnabled && gCachedProxyDict) {
+        return (__bridge_retained CFDictionaryRef)[gCachedProxyDict copy];
+    }
+    if (orig_CFNetworkCopySystemProxySettings) {
+        return orig_CFNetworkCopySystemProxySettings();
+    }
+    return NULL;
+}
+
+static CFArrayRef (*orig_CFNetworkCopyProxiesForURL)(CFURLRef url, CFDictionaryRef proxySettings) = NULL;
+static CFArrayRef hooked_CFNetworkCopyProxiesForURL(CFURLRef url, CFDictionaryRef proxySettings) {
+    if (gProxyEnabled && gCachedCFProxyArray) {
+        return (__bridge_retained CFArrayRef)[gCachedCFProxyArray copy];
+    }
+    if (orig_CFNetworkCopyProxiesForURL) {
+        return orig_CFNetworkCopyProxiesForURL(url, proxySettings);
+    }
+    return NULL;
+}
+
+static CFDictionaryRef (*orig_CNCopyCurrentNetworkInfo)(CFStringRef interfaceName) = NULL;
+static CFDictionaryRef hooked_CNCopyCurrentNetworkInfo(CFStringRef interfaceName) {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    dict[@"SSID"] = @"Wi-Fi";
+    dict[@"BSSID"] = gWifiMacObj ?: @"3c:06:30:1a:8b:24";
+    return (__bridge_retained CFDictionaryRef)dict;
+}
+
+static int (*orig_getifaddrs)(struct ifaddrs **ifap) = NULL;
+static int hooked_getifaddrs(struct ifaddrs **ifap) {
+    int ret = orig_getifaddrs ? orig_getifaddrs(ifap) : -1;
+    if (ret == 0 && ifap && *ifap) {
+        struct ifaddrs *ifa = *ifap;
+        while (ifa) {
+            if (ifa->ifa_addr && ifa->ifa_addr->sa_family == AF_INET) {
+                if (ifa->ifa_name && (strcmp(ifa->ifa_name, "en0") == 0 || strcmp(ifa->ifa_name, "pdp_ip0") == 0)) {
+                    struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
+                    sin->sin_addr.s_addr = gMaskedLocalIPv4;
+                }
+            }
+            ifa = ifa->ifa_next;
+        }
+    }
+    return ret;
+}
+
+#pragma mark - DeviceCheck & Hardware Attestation Neutralization
+
+static BOOL swizzled_DCDevice_isSupported(id self, SEL _cmd) {
+    return YES;
+}
+
+static void (*orig_DCDevice_generateToken)(id, SEL, void (^)(NSData *, NSError *)) = NULL;
+static void swizzled_DCDevice_generateToken(id self, SEL _cmd, void (^completion)(NSData *, NSError *)) {
+    if (orig_DCDevice_generateToken) {
+        orig_DCDevice_generateToken(self, _cmd, completion);
+    } else if (completion) {
+        uint8_t dummy[32];
+        arc4random_buf(dummy, sizeof(dummy));
+        NSData *tok = [NSData dataWithBytes:dummy length:sizeof(dummy)];
+        completion(tok, nil);
+    }
+}
+
+static BOOL swizzled_DCAppAttest_isSupported(id self, SEL _cmd) {
+    return YES;
+}
+
+#pragma mark - Zalo Clipboard Anti-Spy Filter
+
+static NSString *(*orig_pasteboard_string)(id, SEL) = NULL;
+static NSString *swizzled_pasteboard_string(id self, SEL _cmd) {
+    NSString *val = orig_pasteboard_string ? orig_pasteboard_string(self, _cmd) : nil;
+    if (val && [val isKindOfClass:[NSString class]]) {
+        NSString *lower = [val lowercaseString];
+        if ([lower containsString:@"gaulmt"] || [lower containsString:@"ztech"] ||
+            [lower containsString:@"socks5"] || [lower containsString:@"socks"] ||
+            [lower containsString:@"@"] || [lower containsString:@":14530"] ||
+            [lower containsString:@"j52z"]) {
+            return @"";
+        }
+        NSArray<NSString *> *parts = [val componentsSeparatedByString:@":"];
+        if (parts.count >= 2) {
+            NSArray<NSString *> *ipParts = [parts[0] componentsSeparatedByString:@"."];
+            if (ipParts.count == 4) {
+                BOOL isIP = YES;
+                for (NSString *seg in ipParts) {
+                    if (seg.length == 0 || seg.length > 3 || [seg integerValue] < 0 || [seg integerValue] > 255) {
+                        isIP = NO; break;
+                    }
+                }
+                if (isIP) return @"";
+            }
+        }
+    }
+    return val;
+}
+
+#pragma mark - WebKit In-App Browser Fingerprint & Anti-Leak Engine
+
+static SEL gZTechOrigWKInitWithFrameSel = NULL;
+static SEL gZTechOrigWKSetUASel = NULL;
+
+static NSString *ZTechGenerateWebKitFingerprintScript(void) {
+    NSString *fakeUA = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
+    NSString *fakeAppVer = [NSString stringWithFormat:@"5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
+    NSString *fakeGPU = gGpuNameObj ?: @"Apple A18 Pro GPU";
+
+    return [NSString stringWithFormat:
+        @"(() => {\n"
+        @"  try {\n"
+        @"    const fakeUA = '%@';\n"
+        @"    const fakeAppVer = '%@';\n"
+        @"    const fakeW = %ld;\n"
+        @"    const fakeH = %ld;\n"
+        @"    const fakeScale = %.1f;\n"
+        @"    const fakeCores = %ld;\n"
+        @"    const fakeRAM = %ld;\n"
+        @"    const fakeGPU = '%@';\n"
+        @"    // 1. Navigator Spoofing\n"
+        @"    Object.defineProperty(navigator, 'userAgent', { get: () => fakeUA, configurable: true });\n"
+        @"    Object.defineProperty(navigator, 'appVersion', { get: () => fakeAppVer, configurable: true });\n"
+        @"    Object.defineProperty(navigator, 'platform', { get: () => 'iPhone', configurable: true });\n"
+        @"    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => fakeCores, configurable: true });\n"
+        @"    Object.defineProperty(navigator, 'deviceMemory', { get: () => fakeRAM, configurable: true });\n"
+        @"    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });\n"
+        @"    Object.defineProperty(navigator, 'vendor', { get: () => 'Apple Computer, Inc.', configurable: true });\n"
+        @"    // 2. Screen & DPR Spoofing\n"
+        @"    Object.defineProperty(window.screen, 'width', { get: () => fakeW, configurable: true });\n"
+        @"    Object.defineProperty(window.screen, 'availWidth', { get: () => fakeW, configurable: true });\n"
+        @"    Object.defineProperty(window.screen, 'height', { get: () => fakeH, configurable: true });\n"
+        @"    Object.defineProperty(window.screen, 'availHeight', { get: () => fakeH, configurable: true });\n"
+        @"    Object.defineProperty(window.screen, 'colorDepth', { get: () => 32, configurable: true });\n"
+        @"    Object.defineProperty(window.screen, 'pixelDepth', { get: () => 32, configurable: true });\n"
+        @"    Object.defineProperty(window.screen, 'devicePixelRatio', { get: () => fakeScale, configurable: true });\n"
+        @"    // 3. WebGL GPU Spoofing\n"
+        @"    const patchGL = (proto) => {\n"
+        @"      if (!proto || !proto.getParameter) return;\n"
+        @"      const orig = proto.getParameter;\n"
+        @"      proto.getParameter = function(p) {\n"
+        @"        if (p === 0x9245 || p === 0x1F00) return 'Apple Inc.';\n"
+        @"        if (p === 0x9246 || p === 0x1F01) return fakeGPU;\n"
+        @"        return orig.apply(this, arguments);\n"
+        @"      };\n"
+        @"    };\n"
+        @"    if (window.WebGLRenderingContext) patchGL(window.WebGLRenderingContext.prototype);\n"
+        @"    if (window.WebGL2RenderingContext) patchGL(window.WebGL2RenderingContext.prototype);\n"
+        @"    // 4. WebRTC Leak Shield\n"
+        @"    if (window.RTCPeerConnection) {\n"
+        @"      const origCreateOffer = window.RTCPeerConnection.prototype.createOffer;\n"
+        @"      window.RTCPeerConnection.prototype.createOffer = function(opts) {\n"
+        @"        return origCreateOffer.apply(this, arguments);\n"
+        @"      };\n"
+        @"    }\n"
+        @"  } catch(e) {}\n"
+        @"})();",
+        fakeUA, fakeAppVer, (long)gScreenWidth, (long)gScreenHeight, gScreenScale, (long)gCpuCores, (long)gRamGB, fakeGPU];
+}
+
+static id (*orig_WKWebView_initWithFrame_configuration)(id, SEL, CGRect, id) = NULL;
+static void (*orig_WKWebView_setCustomUserAgent)(id, SEL, id) = NULL;
+
+static id swizzled_WKWebView_initWithFrame_configuration(id self, SEL _cmd, CGRect frame, WKWebViewConfiguration *configuration) {
+    @try {
+        if (!configuration) {
+            configuration = [[WKWebViewConfiguration alloc] init];
+        }
+        if (!configuration.userContentController) {
+            configuration.userContentController = [[WKUserContentController alloc] init];
+        }
+
+        NSString *jsSource = ZTechGenerateWebKitFingerprintScript();
+        WKUserScript *script = [[WKUserScript alloc] initWithSource:jsSource
+                                                      injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                   forMainFrameOnly:NO];
+        [configuration.userContentController addUserScript:script];
+    } @catch (NSException *e) {}
+
+    id view = nil;
+    if (orig_WKWebView_initWithFrame_configuration) {
+        view = orig_WKWebView_initWithFrame_configuration(self, _cmd, frame, configuration);
+    } else if (gZTechOrigWKInitWithFrameSel && [self respondsToSelector:gZTechOrigWKInitWithFrameSel]) {
+        view = ((id (*)(id, SEL, CGRect, id))objc_msgSend)(self, gZTechOrigWKInitWithFrameSel, frame, configuration);
+    }
+    if (view && [view isKindOfClass:[WKWebView class]]) {
+        WKWebView *wv = (WKWebView *)view;
+        NSString *fakeUA = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
+        @try {
+            [wv setCustomUserAgent:fakeUA];
+        } @catch (NSException *e) {}
+    }
+    return view;
+}
+
+static void swizzled_WKWebView_setCustomUserAgent(id self, SEL _cmd, NSString *userAgent) {
+    NSString *sanitized = ZTechSanitizeHeaderString(userAgent);
+    if (!sanitized || sanitized.length == 0 || [sanitized containsString:@"15_5"] || [sanitized containsString:@"15.5"]) {
+        sanitized = gWebKitUserAgent ?: [NSString stringWithFormat:@"Mozilla/5.0 (iPhone; CPU iPhone OS %@ like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/%s", gTargetIosUnderscoreObj ?: @"15_8_4", ZTechBuildVersionForIos(gIosVersionObj)];
+    }
+    if (orig_WKWebView_setCustomUserAgent) {
+        orig_WKWebView_setCustomUserAgent(self, _cmd, sanitized);
+    } else if (gZTechOrigWKSetUASel && [self respondsToSelector:gZTechOrigWKSetUASel]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(self, gZTechOrigWKSetUASel, sanitized);
+    }
+}
+
+static BOOL (*orig_canOpenURL)(id, SEL, NSURL *) = NULL;
+static BOOL swizzled_canOpenURL(id self, SEL _cmd, NSURL *url) {
+    if (url) {
+        NSString *scheme = [[url scheme] lowercaseString];
+        if ([scheme isEqualToString:@"cydia"] ||
+            [scheme isEqualToString:@"sileo"] ||
+            [scheme isEqualToString:@"zbra"] ||
+            [scheme isEqualToString:@"filza"] ||
+            [scheme isEqualToString:@"undecimus"] ||
+            [scheme isEqualToString:@"santander"] ||
+            [scheme isEqualToString:@"activator"] ||
+            [scheme isEqualToString:@"installer"] ||
+            [scheme isEqualToString:@"apt"]) {
+            return NO;
+        }
+    }
+    if (orig_canOpenURL) return orig_canOpenURL(self, _cmd, url);
+    return NO;
+}
+
+#pragma mark - In-Memory NSUbiquitousKeyValueStore Stub (Prevents SyncedDefaults EXC_GUARD & iCloud KVS Leaks)
+
+@interface ZTechUbiquitousStoreStub : NSObject {
+    NSMutableDictionary<NSString *, id> *_store;
+    NSLock *_lock;
+}
++ (instancetype)sharedStore;
+- (void)resetStore;
+@end
+
+@implementation ZTechUbiquitousStoreStub
+
++ (instancetype)sharedStore {
+    static ZTechUbiquitousStoreStub *sStub = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sStub = [[ZTechUbiquitousStoreStub alloc] init];
+    });
+    return sStub;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _store = [[NSMutableDictionary alloc] init];
+        _lock = [[NSLock alloc] init];
+    }
+    return self;
+}
+
+- (void)resetStore {
+    [_lock lock];
+    [_store removeAllObjects];
+    [_lock unlock];
+}
+
+- (BOOL)isKindOfClass:(Class)aClass {
+    Class kvsCls = objc_getClass("NSUbiquitousKeyValueStore");
+    if (kvsCls && (aClass == kvsCls || [kvsCls isSubclassOfClass:aClass])) {
+        return YES;
+    }
+    return [super isKindOfClass:aClass];
+}
+
+- (id)objectForKey:(NSString *)aKey {
+    if (!aKey) return nil;
+    [_lock lock];
+    id val = _store[aKey];
+    [_lock unlock];
+    return val;
+}
+
+- (void)setObject:(id)anObject forKey:(NSString *)aKey {
+    if (!aKey) return;
+    [_lock lock];
+    if (anObject) {
+        _store[aKey] = anObject;
+    } else {
+        [_store removeObjectForKey:aKey];
+    }
+    [_lock unlock];
+}
+
+- (void)removeObjectForKey:(NSString *)aKey {
+    if (!aKey) return;
+    [_lock lock];
+    [_store removeObjectForKey:aKey];
+    [_lock unlock];
+}
+
+- (NSString *)stringForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    return [v isKindOfClass:[NSString class]] ? v : nil;
+}
+
+- (NSArray *)arrayForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    return [v isKindOfClass:[NSArray class]] ? v : nil;
+}
+
+- (NSDictionary<NSString *, id> *)dictionaryForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    return [v isKindOfClass:[NSDictionary class]] ? v : nil;
+}
+
+- (NSData *)dataForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    return [v isKindOfClass:[NSData class]] ? v : nil;
+}
+
+- (long long)longLongForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    if ([v respondsToSelector:@selector(longLongValue)]) return [v longLongValue];
+    return 0;
+}
+
+- (double)doubleForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    if ([v respondsToSelector:@selector(doubleValue)]) return [v doubleValue];
+    return 0.0;
+}
+
+- (BOOL)boolForKey:(NSString *)aKey {
+    id v = [self objectForKey:aKey];
+    if ([v respondsToSelector:@selector(boolValue)]) return [v boolValue];
+    return NO;
+}
+
+- (void)setString:(NSString *)aString forKey:(NSString *)aKey {
+    [self setObject:aString forKey:aKey];
+}
+
+- (void)setData:(NSData *)aData forKey:(NSString *)aKey {
+    [self setObject:aData forKey:aKey];
+}
+
+- (void)setArray:(NSArray *)anArray forKey:(NSString *)aKey {
+    [self setObject:anArray forKey:aKey];
+}
+
+- (void)setDictionary:(NSDictionary<NSString *, id> *)aDictionary forKey:(NSString *)aKey {
+    [self setObject:aDictionary forKey:aKey];
+}
+
+- (void)setLongLong:(long long)value forKey:(NSString *)aKey {
+    [self setObject:@(value) forKey:aKey];
+}
+
+- (void)setDouble:(double)value forKey:(NSString *)aKey {
+    [self setObject:@(value) forKey:aKey];
+}
+
+- (void)setBool:(BOOL)value forKey:(NSString *)aKey {
+    [self setObject:@(value) forKey:aKey];
+}
+
+- (NSDictionary<NSString *, id> *)dictionaryRepresentation {
+    [_lock lock];
+    NSDictionary *copy = [_store copy] ?: @{};
+    [_lock unlock];
+    return copy;
+}
+
+- (BOOL)synchronize {
+    return YES;
+}
+
+- (id)valueForKey:(NSString *)key {
+    return [self objectForKey:key];
+}
+
+- (void)setValue:(id)value forKey:(NSString *)key {
+    [self setObject:value forKey:key];
+}
+
+- (id)objectForKeyedSubscript:(NSString *)key {
+    return [self objectForKey:key];
+}
+
+- (void)setObject:(id)obj forKeyedSubscript:(NSString *)key {
+    [self setObject:obj forKey:key];
+}
+
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
+    NSMethodSignature *sig = [super methodSignatureForSelector:aSelector];
+    if (!sig) {
+        Class kvsCls = objc_getClass("NSUbiquitousKeyValueStore");
+        if (kvsCls) {
+            sig = [kvsCls instanceMethodSignatureForSelector:aSelector];
+        }
+    }
+    if (!sig) {
+        sig = [NSMethodSignature signatureWithObjCTypes:"@@:"];
+    }
+    return sig;
+}
+
+- (void)forwardInvocation:(NSInvocation *)anInvocation {
+    id nilVal = nil;
+    if (anInvocation.methodSignature.methodReturnLength == sizeof(id)) {
+        [anInvocation setReturnValue:&nilVal];
+    }
+}
+
+@end
+
+static id swizzled_ubiquitousDefaultStore(id self, SEL _cmd) {
+    return [ZTechUbiquitousStoreStub sharedStore];
+}
+
+#pragma mark - Constructor
+
+__attribute__((constructor))
+static void ChangeInfoHookInit(void) {
+    if (dlsym(RTLD_DEFAULT, "gZTechHookActiveFlag") != NULL) {
+        // quang lam marketing tweak is already active in this process; yield to prevent duplicate hooking
+        return;
+    }
+
+    @autoreleasepool {
+        NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
+        NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+
+        if ([bundleId isEqualToString:@"com.apple.springboard"]) {
+            static int tokenOn = 0;
+            notify_register_dispatch("com.ztech.airplaneModeOn", &tokenOn, dispatch_get_main_queue(), ^(int token) {
+                @try {
+                    Class sbClass = objc_getClass("SBAirplaneModeController");
+                    if (sbClass) {
+                        SEL sharedSel = sel_registerName("sharedInstance");
+                        SEL setAirSel = sel_registerName("setInAirplaneMode:");
+                        if ([sbClass respondsToSelector:sharedSel]) {
+                            id ctrl = ((id (*)(id, SEL))objc_msgSend)(sbClass, sharedSel);
+                            if (ctrl && [ctrl respondsToSelector:setAirSel]) {
+                                ((void (*)(id, SEL, BOOL))objc_msgSend)(ctrl, setAirSel, YES);
+                            }
+                        }
+                    }
+                    Class rpClass = objc_getClass("RadiosPreferences");
+                    if (rpClass) {
+                        id rp = [[rpClass alloc] init];
+                        SEL setAirSel = sel_registerName("setAirplaneMode:");
+                        if ([rp respondsToSelector:setAirSel]) {
+                            ((void (*)(id, SEL, BOOL))objc_msgSend)(rp, setAirSel, YES);
+                        }
+                        SEL syncSel = sel_registerName("synchronize");
+                        if ([rp respondsToSelector:syncSel]) {
+                            ((void (*)(id, SEL))objc_msgSend)(rp, syncSel);
+                        }
+                    }
+                } @catch (NSException *e) {}
+            });
+
+            static int tokenOff = 0;
+            notify_register_dispatch("com.ztech.airplaneModeOff", &tokenOff, dispatch_get_main_queue(), ^(int token) {
+                @try {
+                    Class sbClass = objc_getClass("SBAirplaneModeController");
+                    if (sbClass) {
+                        SEL sharedSel = sel_registerName("sharedInstance");
+                        SEL setAirSel = sel_registerName("setInAirplaneMode:");
+                        if ([sbClass respondsToSelector:sharedSel]) {
+                            id ctrl = ((id (*)(id, SEL))objc_msgSend)(sbClass, sharedSel);
+                            if (ctrl && [ctrl respondsToSelector:setAirSel]) {
+                                ((void (*)(id, SEL, BOOL))objc_msgSend)(ctrl, setAirSel, NO);
+                            }
+                        }
+                    }
+                    Class rpClass = objc_getClass("RadiosPreferences");
+                    if (rpClass) {
+                        id rp = [[rpClass alloc] init];
+                        SEL setAirSel = sel_registerName("setAirplaneMode:");
+                        if ([rp respondsToSelector:setAirSel]) {
+                            ((void (*)(id, SEL, BOOL))objc_msgSend)(rp, setAirSel, NO);
+                        }
+                        SEL syncSel = sel_registerName("synchronize");
+                        if ([rp respondsToSelector:syncSel]) {
+                            ((void (*)(id, SEL))objc_msgSend)(rp, syncSel);
+                        }
+                    }
+                } @catch (NSException *e) {}
+            });
+            return;
+        }
+
+        NSString *procName = [[NSProcessInfo processInfo] processName];
+        BOOL isAida = (bundleId && [bundleId localizedCaseInsensitiveContainsString:@"aida64"]) ||
+                      (procName && [procName localizedCaseInsensitiveContainsString:@"aida64"]);
+        BOOL isZalo = (bundleId && [bundleId localizedCaseInsensitiveContainsString:@"zalo"]) ||
+                      (procName && [procName localizedCaseInsensitiveContainsString:@"zalo"]) ||
+                      (bundleId && [bundleId localizedCaseInsensitiveContainsString:@"zingalo"]) ||
+                      (procName && [procName localizedCaseInsensitiveContainsString:@"zingalo"]);
+
+        if (!isAida && !isZalo) {
+            return;
+        }
+
+        gIsAidaProcess = isAida ? 1 : 0;
+        gProcessStartTime = time(NULL);
+
+        // Immediately clean up any broken .GlobalPreferences.plist symlink inside the app's container before CFPreferences initializes
+        const char *homeEnv = getenv("HOME");
+        if (homeEnv && homeEnv[0] != '\0') {
+            char gpLink[1024] = {0};
+            snprintf(gpLink, sizeof(gpLink), "%s/Library/Preferences/.GlobalPreferences.plist", homeEnv);
+            struct stat st;
+            if (lstat(gpLink, &st) == 0 && S_ISLNK(st.st_mode)) {
+                unlink(gpLink);
+            }
+        }
+
+        gPrevUncaughtHandler = NSGetUncaughtExceptionHandler();
+        NSSetUncaughtExceptionHandler(&ZTechUncaughtExceptionHandler);
+        ZTechInstallSignalHandlers();
+        atexit(ZTechAtExitHandler);
+
+        ZTechHookTrace([[NSString stringWithFormat:@"[1/6] ChangeInfoHookInit v1.0.0 started in pid:%d (%@ / %@)",
+                         getpid(), bundleId ?: @"(nil)", procName ?: @"(nil)"] UTF8String]);
+
+        if (uname(&gRealUts) == 0 && gRealUts.machine[0] != '\0') {
+            gHasRealUts = 1;
+            strncpy(gRealMachineCStr, gRealUts.machine, sizeof(gRealMachineCStr) - 1);
+            gRealMachineCStr[sizeof(gRealMachineCStr) - 1] = '\0';
+            gRealMachineObj = [NSString stringWithUTF8String:gRealMachineCStr];
+            gRealMarketingObj = ZTechMarketingNameForMachine(gRealMachineObj);
+            gRealScaleStr = ZTechScaleForMachine(gRealMachineObj);
+        }
+
+        // Read real board-id before any sysctl hooks
+        char realModelBuf[64] = {0};
+        size_t rLen = sizeof(realModelBuf);
+        int mib[2] = { CTL_HW, HW_MODEL };
+        if (__sysctl(mib, 2, realModelBuf, &rLen, NULL, 0) == 0 && realModelBuf[0] != '\0') {
+            gRealBoardIdObj = [NSString stringWithUTF8String:realModelBuf];
+        } else if (gRealMachineObj.length > 0) {
+            gRealBoardIdObj = ZTechBoardIdForMachine(gRealMachineObj);
+        }
+
+        // Read real iOS version
+        NSOperatingSystemVersion osVer = [[NSProcessInfo processInfo] operatingSystemVersion];
+        if (osVer.majorVersion > 0) {
+            if (osVer.patchVersion > 0) {
+                gRealIosVersionObj = [NSString stringWithFormat:@"%ld.%ld.%ld", (long)osVer.majorVersion, (long)osVer.minorVersion, (long)osVer.patchVersion];
+            } else {
+                gRealIosVersionObj = [NSString stringWithFormat:@"%ld.%ld", (long)osVer.majorVersion, (long)osVer.minorVersion];
+            }
+        }
+        gRealIosUnderscoreObj = [gRealIosVersionObj stringByReplacingOccurrencesOfString:@"." withString:@"_"];
+
+        ZTechHookTrace([[NSString stringWithFormat:@"[Real Hardware] mach=%@, market=%@, board=%@, ios=%@, scale=%@",
+                         gRealMachineObj, gRealMarketingObj, gRealBoardIdObj, gRealIosVersionObj, gRealScaleStr] UTF8String]);
+
+        // Fast instant cached profile read (reads local container first)
+        ZTechLoadProfileOnce();
+
+        ZTechHookTrace([[NSString stringWithFormat:@"[2/6] Profile loaded: model=%@, id=%@, ios=%@, uuid=%@",
+                         gModelNameObj, gMachineIdObj, gIosVersionObj, gUuidObj] UTF8String]);
+
+                if (isZalo) {
+            // Swizzle +[NSUbiquitousKeyValueStore defaultStore] to return in-memory stub
+            // Eliminates SyncedDefaults (SYDRemotePreferencesSource) EXC_GUARD fault & blocks iCloud KVS tracking
+            @try {
+                Class kvsCls = objc_getClass("NSUbiquitousKeyValueStore");
+                if (kvsCls) {
+                    Method mDefStore = class_getClassMethod(kvsCls, @selector(defaultStore));
+                    if (mDefStore) {
+                        method_setImplementation(mDefStore, (IMP)swizzled_ubiquitousDefaultStore);
+                    }
+                }
+            } @catch (NSException *e) {}
+        }
+
+// 1. Safe Objective-C Swizzling for UIDevice & NSURLSessionConfiguration using objc_getClass
+        @try {
+            Class uiDeviceCls = objc_getClass("UIDevice");
+            if (uiDeviceCls) {
+                Method mSysVer = class_getInstanceMethod(uiDeviceCls, @selector(systemVersion));
+                if (mSysVer) {
+                    orig_systemVersion = (void *)method_getImplementation(mSysVer);
+                    method_setImplementation(mSysVer, (IMP)swizzled_systemVersion);
+                }
+
+                Method mDevName = class_getInstanceMethod(uiDeviceCls, @selector(name));
+                if (mDevName) {
+                    orig_deviceName = (void *)method_getImplementation(mDevName);
+                    method_setImplementation(mDevName, (IMP)swizzled_deviceName);
+                }
+
+                Method mModel = class_getInstanceMethod(uiDeviceCls, @selector(model));
+                if (mModel) {
+                    method_setImplementation(mModel, (IMP)swizzled_model);
+                }
+
+                Method mLocModel = class_getInstanceMethod(uiDeviceCls, @selector(localizedModel));
+                if (mLocModel) {
+                    method_setImplementation(mLocModel, (IMP)swizzled_model);
+                }
+
+                SEL rawNameSel = sel_registerName("_rawDeviceName");
+                Method mRawName = class_getInstanceMethod(uiDeviceCls, rawNameSel);
+                if (mRawName) {
+                    method_setImplementation(mRawName, (IMP)swizzled_rawDeviceName);
+                }
+
+                Method mBat = class_getInstanceMethod(uiDeviceCls, @selector(batteryLevel));
+                if (mBat) {
+                    orig_batteryLevel = (void *)method_getImplementation(mBat);
+                    method_setImplementation(mBat, (IMP)swizzled_batteryLevel);
+                }
+
+                Method mIdfv = class_getInstanceMethod(uiDeviceCls, @selector(identifierForVendor));
+                if (mIdfv) {
+                    orig_identifierForVendor = (void *)method_getImplementation(mIdfv);
+                    method_setImplementation(mIdfv, (IMP)swizzled_identifierForVendor);
+                }
+
+                SEL devInfoSel = sel_registerName("_deviceInfoForKey:");
+                Method mDevInfo = class_getInstanceMethod(uiDeviceCls, devInfoSel);
+                if (mDevInfo) {
+                    gZTechOrigDevInfoSel = sel_registerName("_ztech_orig_deviceInfoForKey:");
+                    if (class_addMethod(uiDeviceCls, gZTechOrigDevInfoSel, (IMP)swizzled_deviceInfoForKey, method_getTypeEncoding(mDevInfo))) {
+                        Method mSwizDevInfo = class_getInstanceMethod(uiDeviceCls, gZTechOrigDevInfoSel);
+                        if (mSwizDevInfo) method_exchangeImplementations(mDevInfo, mSwizDevInfo);
+                    }
+                }
+            }
+
+            // Always swizzle NSURLSessionConfiguration & NSMutableURLRequest to sanitize HTTP User-Agent & Headers
+            Class urlCfgCls = objc_getClass("NSURLSessionConfiguration");
+            Class urlCfgMeta = urlCfgCls ? object_getClass(urlCfgCls) : nil;
+            if (urlCfgCls && urlCfgMeta) {
+                gZTechOrigDefCfgSel = sel_registerName("_ztech_orig_defaultSessionConfiguration");
+                Method mDefCfg = class_getClassMethod(urlCfgCls, @selector(defaultSessionConfiguration));
+                if (mDefCfg && class_addMethod(urlCfgMeta, gZTechOrigDefCfgSel, (IMP)swizzled_defaultSessionConfig, method_getTypeEncoding(mDefCfg))) {
+                    Method mSwizDef = class_getClassMethod(urlCfgCls, gZTechOrigDefCfgSel);
+                    if (mSwizDef) method_exchangeImplementations(mDefCfg, mSwizDef);
+                }
+
+                gZTechOrigEphCfgSel = sel_registerName("_ztech_orig_ephemeralSessionConfiguration");
+                Method mEphCfg = class_getClassMethod(urlCfgCls, @selector(ephemeralSessionConfiguration));
+                if (mEphCfg && class_addMethod(urlCfgMeta, gZTechOrigEphCfgSel, (IMP)swizzled_ephemeralSessionConfig, method_getTypeEncoding(mEphCfg))) {
+                    Method mSwizEph = class_getClassMethod(urlCfgCls, gZTechOrigEphCfgSel);
+                    if (mSwizEph) method_exchangeImplementations(mEphCfg, mSwizEph);
+                }
+            }
+
+            Class sesCls = objc_getClass("NSURLSession");
+            if (sesCls) {
+                Class sesMeta = object_getClass((id)sesCls);
+                gZTechOrigSessionWithCfgSel = sel_registerName("_ztech_orig_sessionWithConfiguration:delegate:delegateQueue:");
+                Method mSesWithCfg = class_getClassMethod(sesCls, @selector(sessionWithConfiguration:delegate:delegateQueue:));
+                if (mSesWithCfg && class_addMethod(sesMeta, gZTechOrigSessionWithCfgSel, (IMP)swizzled_sessionWithConfig, method_getTypeEncoding(mSesWithCfg))) {
+                    Method mSwizSes = class_getClassMethod(sesCls, gZTechOrigSessionWithCfgSel);
+                    if (mSwizSes) method_exchangeImplementations(mSesWithCfg, mSwizSes);
+                }
+            }
+
+            Class reqCls = objc_getClass("NSMutableURLRequest");
+            if (reqCls) {
+                Method mSetHdr = class_getInstanceMethod(reqCls, @selector(setValue:forHTTPHeaderField:));
+                if (mSetHdr) {
+                    gZTechOrigSetHdrSel = sel_registerName("_ztech_orig_setValue:forHTTPHeaderField:");
+                    if (class_addMethod(reqCls, gZTechOrigSetHdrSel, (IMP)swizzled_setValueForHTTPHeaderField, method_getTypeEncoding(mSetHdr))) {
+                        Method mSwizHdr = class_getInstanceMethod(reqCls, gZTechOrigSetHdrSel);
+                        if (mSwizHdr) method_exchangeImplementations(mSetHdr, mSwizHdr);
+                    }
+                }
+            }
+
+            // Swizzle WKWebView for in-app browser fingerprinting & WebRTC protection
+            Class wkCls = objc_getClass("WKWebView");
+            if (wkCls) {
+                Method mInit = class_getInstanceMethod(wkCls, @selector(initWithFrame:configuration:));
+                if (mInit) {
+                    orig_WKWebView_initWithFrame_configuration = (id (*)(id, SEL, CGRect, id))method_getImplementation(mInit);
+                    method_setImplementation(mInit, (IMP)swizzled_WKWebView_initWithFrame_configuration);
+                }
+                Method mSetUA = class_getInstanceMethod(wkCls, @selector(setCustomUserAgent:));
+                if (mSetUA) {
+                    orig_WKWebView_setCustomUserAgent = (void (*)(id, SEL, id))method_getImplementation(mSetUA);
+                    method_setImplementation(mSetUA, (IMP)swizzled_WKWebView_setCustomUserAgent);
+                }
+                ZTechHookTrace("[WebKit] WKWebView fingerprinted & isolated with DocumentStart UserScript");
+            }
+
+            ZTechHookTrace("[3/6] UIDevice, NSURLSessionConfiguration, WKWebView & Request headers swizzled (arm64e PAC-safe)");
+        } @catch (NSException *e) {
+            ZTechHookTrace([[NSString stringWithFormat:@"[3/6 ERROR] UIDevice swizzle exception: %@", e] UTF8String]);
+        }
+
+        // 2. Safe Objective-C Swizzling for CTCarrier using objc_getClass
+        @try {
+            Class ctCarrierCls = objc_getClass("CTCarrier");
+            if (ctCarrierCls) {
+                Method mCarrier = class_getInstanceMethod(ctCarrierCls, @selector(carrierName));
+                if (mCarrier) {
+                    orig_carrierName = (void *)method_getImplementation(mCarrier);
+                    method_setImplementation(mCarrier, (IMP)swizzled_carrierName);
+                }
+                Method mIso = class_getInstanceMethod(ctCarrierCls, @selector(isoCountryCode));
+                if (mIso) {
+                    orig_isoCountryCode = (void *)method_getImplementation(mIso);
+                    method_setImplementation(mIso, (IMP)swizzled_isoCountryCode);
+                }
+                Method mMcc = class_getInstanceMethod(ctCarrierCls, @selector(mobileCountryCode));
+                if (mMcc) {
+                    orig_mobileCountryCode = (void *)method_getImplementation(mMcc);
+                    method_setImplementation(mMcc, (IMP)swizzled_mobileCountryCode);
+                }
+                Method mMnc = class_getInstanceMethod(ctCarrierCls, @selector(mobileNetworkCode));
+                if (mMnc) {
+                    orig_mobileNetworkCode = (void *)method_getImplementation(mMnc);
+                    method_setImplementation(mMnc, (IMP)swizzled_mobileNetworkCode);
+                }
+                ZTechHookTrace("[4/6] CTCarrier swizzled successfully");
+            } else {
+                ZTechHookTrace("[4/6] CTCarrier not loaded (skipped)");
+            }
+        } @catch (NSException *e) {
+            ZTechHookTrace([[NSString stringWithFormat:@"[4/6 ERROR] CTCarrier swizzle exception: %@", e] UTF8String]);
+        }
+
+        // 3. Hardware Model, MobileGestalt & IOKit Spoofing (ElleKit MSHookFunction Global Native Hooks)
+
+        typedef void (*zt_MSHookFunction_t)(void *symbol, void *replace, void **result);
+        zt_MSHookFunction_t pMSHook = (zt_MSHookFunction_t)dlsym(RTLD_DEFAULT, "MSHookFunction");
+        if (!pMSHook) {
+            void *hElle = dlopen("/var/jb/usr/lib/libellekit.dylib", RTLD_LAZY | RTLD_GLOBAL);
+            if (!hElle) hElle = dlopen("/var/jb/usr/lib/libsubstrate.dylib", RTLD_LAZY | RTLD_GLOBAL);
+            if (!hElle) hElle = dlopen("/usr/lib/libsubstrate.dylib", RTLD_LAZY | RTLD_GLOBAL);
+            if (!hElle) hElle = dlopen("/usr/lib/libellekit.dylib", RTLD_LAZY | RTLD_GLOBAL);
+            if (!hElle) hElle = dlopen("/usr/lib/libsubstitute.dylib", RTLD_LAZY | RTLD_GLOBAL);
+            if (!hElle) hElle = dlopen("/var/jb/usr/lib/libsubstitute.dylib", RTLD_LAZY | RTLD_GLOBAL);
+            if (hElle) {
+                pMSHook = (zt_MSHookFunction_t)dlsym(hElle, "MSHookFunction");
+            }
+        }
+        if (pMSHook) {
+            void *raw_uname = dlsym(RTLD_DEFAULT, "uname");
+            if (raw_uname) pMSHook(raw_uname, (void *)hooked_uname, (void **)&orig_uname);
+
+            void *raw_statfs = dlsym(RTLD_DEFAULT, "statfs");
+            if (raw_statfs) pMSHook(raw_statfs, (void *)hooked_statfs, (void **)&orig_statfs);
+
+            void *raw_statfs64 = dlsym(RTLD_DEFAULT, "statfs64");
+            if (raw_statfs64) pMSHook(raw_statfs64, (void *)hooked_statfs64, (void **)&orig_statfs64);
+
+            void *raw_statvfs = dlsym(RTLD_DEFAULT, "statvfs");
+            if (raw_statvfs) pMSHook(raw_statvfs, (void *)hooked_statvfs, (void **)&orig_statvfs);
+
+            void *raw_getenv = dlsym(RTLD_DEFAULT, "getenv");
+            if (raw_getenv) pMSHook(raw_getenv, (void *)hooked_getenv, (void **)&orig_getenv);
+
+            void *raw_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
+            void *raw_sysctl = dlsym(RTLD_DEFAULT, "sysctl");
+            if (raw_sysctlbyname) pMSHook(raw_sysctlbyname, (void *)hooked_sysctlbyname, (void **)&orig_sysctlbyname);
+            if (raw_sysctl) pMSHook(raw_sysctl, (void *)hooked_sysctl, (void **)&orig_sysctl);
+
+            void *raw_MGCopyAnswer = dlsym(RTLD_DEFAULT, "MGCopyAnswer");
+            if (!raw_MGCopyAnswer) {
+                void *hMG = dlopen("/usr/lib/libMobileGestalt.dylib", RTLD_GLOBAL | RTLD_LAZY);
+                if (hMG) raw_MGCopyAnswer = dlsym(hMG, "MGCopyAnswer");
+            }
+            if (raw_MGCopyAnswer) {
+                pMSHook(raw_MGCopyAnswer, (void *)hooked_MGCopyAnswer, (void **)&orig_MGCopyAnswer);
+            }
+
+            void *raw_MGWithError = dlsym(RTLD_DEFAULT, "MGCopyAnswerWithError");
+            if (!raw_MGWithError) {
+                void *hMG = dlopen("/usr/lib/libMobileGestalt.dylib", RTLD_GLOBAL | RTLD_LAZY);
+                if (hMG) raw_MGWithError = dlsym(hMG, "MGCopyAnswerWithError");
+            }
+            if (raw_MGWithError) {
+                pMSHook(raw_MGWithError, (void *)hooked_MGCopyAnswerWithError, (void **)&orig_MGCopyAnswerWithError);
+            }
+
+            void *raw_SCCompName = dlsym(RTLD_DEFAULT, "SCDynamicStoreCopyComputerName");
+            if (!raw_SCCompName) {
+                void *hSC = dlopen("/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration", RTLD_GLOBAL | RTLD_LAZY);
+                if (hSC) raw_SCCompName = dlsym(hSC, "SCDynamicStoreCopyComputerName");
+            }
+            if (raw_SCCompName) {
+                pMSHook(raw_SCCompName, (void *)hooked_SCDynamicStoreCopyComputerName, (void **)&orig_SCDynamicStoreCopyComputerName);
+            }
+
+            void *raw_SCHostName = dlsym(RTLD_DEFAULT, "SCDynamicStoreCopyLocalHostName");
+            if (raw_SCHostName) {
+                pMSHook(raw_SCHostName, (void *)hooked_SCDynamicStoreCopyLocalHostName, (void **)&orig_SCDynamicStoreCopyLocalHostName);
+            }
+
+            void *raw_CFCopySysVer = dlsym(RTLD_DEFAULT, "_CFCopySystemVersionDictionary");
+            if (raw_CFCopySysVer) {
+                pMSHook(raw_CFCopySysVer, (void *)hooked_CFCopySystemVersionDictionary, (void **)&orig_CFCopySystemVersionDictionary);
+            }
+
+            void *raw_IOReg = dlsym(RTLD_DEFAULT, "IORegistryEntryCreateCFProperty");
+            if (!raw_IOReg) {
+                void *hIO = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_GLOBAL | RTLD_LAZY);
+                if (hIO) raw_IOReg = dlsym(hIO, "IORegistryEntryCreateCFProperty");
+            }
+            if (raw_IOReg) {
+                pMSHook(raw_IOReg, (void *)hooked_IORegistryEntryCreateCFProperty, (void **)&orig_IORegistryEntryCreateCFProperty);
+            }
+
+            // Hook CFNetwork proxy configuration (prevents real IP leaks on C/C++ sockets, Mars & CFNetwork)
+            void *raw_CFSysProxy = dlsym(RTLD_DEFAULT, "CFNetworkCopySystemProxySettings");
+            if (!raw_CFSysProxy) {
+                void *hCFNet = dlopen("/System/Library/Frameworks/CFNetwork.framework/CFNetwork", RTLD_GLOBAL | RTLD_LAZY);
+                if (hCFNet) raw_CFSysProxy = dlsym(hCFNet, "CFNetworkCopySystemProxySettings");
+            }
+            if (raw_CFSysProxy) {
+                pMSHook(raw_CFSysProxy, (void *)hooked_CFNetworkCopySystemProxySettings, (void **)&orig_CFNetworkCopySystemProxySettings);
+            }
+
+            void *raw_CFProxiesForURL = dlsym(RTLD_DEFAULT, "CFNetworkCopyProxiesForURL");
+            if (raw_CFProxiesForURL) {
+                pMSHook(raw_CFProxiesForURL, (void *)hooked_CFNetworkCopyProxiesForURL, (void **)&orig_CFNetworkCopyProxiesForURL);
+            }
+
+            // Hook CNCopyCurrentNetworkInfo to spoof Wi-Fi router BSSID/MAC
+            void *raw_CNCopy = dlsym(RTLD_DEFAULT, "CNCopyCurrentNetworkInfo");
+            if (raw_CNCopy) {
+                pMSHook(raw_CNCopy, (void *)hooked_CNCopyCurrentNetworkInfo, (void **)&orig_CNCopyCurrentNetworkInfo);
+            }
+
+            // Hook getifaddrs to mask local network IP
+            void *raw_getifaddrs = dlsym(RTLD_DEFAULT, "getifaddrs");
+            if (raw_getifaddrs) {
+                pMSHook(raw_getifaddrs, (void *)hooked_getifaddrs, (void **)&orig_getifaddrs);
+            }
+
+            if (isZalo) {
+                // Swizzle NSFileManager fileExistsAtPath: inside Zalo only
+                Class fmCls = objc_getClass("NSFileManager");
+                if (fmCls) {
+                    Method mExists = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:));
+                    if (mExists) {
+                        orig_fm_fileExistsAtPath = (BOOL (*)(id, SEL, NSString *))method_getImplementation(mExists);
+                        method_setImplementation(mExists, (IMP)swizzled_fm_fileExistsAtPath);
+                    }
+                    Method mExistsDir = class_getInstanceMethod(fmCls, @selector(fileExistsAtPath:isDirectory:));
+                    if (mExistsDir) {
+                        orig_fm_fileExistsAtPath_isDir = (BOOL (*)(id, SEL, NSString *, BOOL *))method_getImplementation(mExistsDir);
+                        method_setImplementation(mExistsDir, (IMP)swizzled_fm_fileExistsAtPath_isDir);
+                    }
+                    Method mAttrFS = class_getInstanceMethod(fmCls, @selector(attributesOfFileSystemForPath:error:));
+                    if (mAttrFS) {
+                        orig_fm_attributesOfFileSystemForPath_error = (NSDictionary *(*)(id, SEL, NSString *, NSError **))method_getImplementation(mAttrFS);
+                        method_setImplementation(mAttrFS, (IMP)swizzled_fm_attributesOfFileSystemForPath_error);
+                    }
+                }
+
+                // Swizzle UIApplication canOpenURL: inside Zalo only
+                Class appCls = objc_getClass("UIApplication");
+                if (appCls) {
+                    Method mCanOpen = class_getInstanceMethod(appCls, @selector(canOpenURL:));
+                    if (mCanOpen) {
+                        orig_canOpenURL = (void *)method_getImplementation(mCanOpen);
+                        method_setImplementation(mCanOpen, (IMP)swizzled_canOpenURL);
+                    }
+                }
+
+                // Anti-detection: Rock-solid C-level hooks for Zalo
+                void *raw_access = dlsym(RTLD_DEFAULT, "access");
+                if (raw_access) pMSHook(raw_access, (void *)hooked_access, (void **)&orig_access);
+
+                void *raw_stat = dlsym(RTLD_DEFAULT, "stat");
+                if (raw_stat) pMSHook(raw_stat, (void *)hooked_stat, (void **)&orig_stat);
+
+                void *raw_lstat = dlsym(RTLD_DEFAULT, "lstat");
+                if (raw_lstat) pMSHook(raw_lstat, (void *)hooked_lstat, (void **)&orig_lstat);
+
+                void *raw_fork = dlsym(RTLD_DEFAULT, "fork");
+                if (raw_fork) pMSHook(raw_fork, (void *)hooked_fork, (void **)&orig_fork);
+
+                void *raw_dyld_img = dlsym(RTLD_DEFAULT, "_dyld_get_image_name");
+                if (raw_dyld_img) pMSHook(raw_dyld_img, (void *)hooked_dyld_get_image_name, (void **)&orig_dyld_get_image_name);
+            }
+        }
+
+        struct utsname verifyUts;
+        memset(&verifyUts, 0, sizeof(verifyUts));
+        uname(&verifyUts);
+        char verifyMach[64] = {0};
+        size_t verifyLen = sizeof(verifyMach);
+        sysctlbyname("hw.machine", verifyMach, &verifyLen, NULL, 0);
+        ZTechHookTrace([[NSString stringWithFormat:@"[4.5/6] Universal hardware spoofing active: uname.machine=%s, sysctl(hw.machine)=%s, board=%s",
+                         verifyUts.machine, verifyMach, gBoardIdCStr] UTF8String]);
+
+        // 4. OS Version & Diagnostic Spoofing (NSProcessInfo for all apps, Metal GPU for AIDA)
+        @try {
+            Class procCls = objc_getClass("NSProcessInfo");
+            if (procCls) {
+                Method mOsVer = class_getInstanceMethod(procCls, @selector(operatingSystemVersion));
+                if (mOsVer) {
+                    orig_osVersion = (void *)method_getImplementation(mOsVer);
+                    method_setImplementation(mOsVer, (IMP)swizzled_osVersion);
+                }
+
+                Method mOsVerStr = class_getInstanceMethod(procCls, @selector(operatingSystemVersionString));
+                if (mOsVerStr) {
+                    orig_osVersionString = (void *)method_getImplementation(mOsVerStr);
+                    method_setImplementation(mOsVerStr, (IMP)swizzled_osVersionString);
+                }
+
+                Method mPhysMem = class_getInstanceMethod(procCls, @selector(physicalMemory));
+                if (mPhysMem) {
+                    orig_physicalMemory = (void *)method_getImplementation(mPhysMem);
+                    method_setImplementation(mPhysMem, (IMP)swizzled_physicalMemory);
+                }
+            }
+
+            if (isAida) {
+                Class mtlDevCls = objc_getClass("_MTLDevice");
+                if (!mtlDevCls) mtlDevCls = objc_getClass("MTLDevice");
+                if (mtlDevCls) {
+                    Method mGpu = class_getInstanceMethod(mtlDevCls, @selector(name));
+                    if (mGpu) {
+                        orig_MTLDevice_name = (void *)method_getImplementation(mGpu);
+                        method_setImplementation(mGpu, (IMP)swizzled_MTLDevice_name);
+                    }
+                }
+            }
+
+            // Swizzle DeviceCheck & AppAttest to neutralize physical Secure Enclave hardware tracking
+            @try {
+                Class dcCls = objc_getClass("DCDevice");
+                if (!dcCls) {
+                    dlopen("/System/Library/Frameworks/DeviceCheck.framework/DeviceCheck", RTLD_GLOBAL | RTLD_LAZY);
+                    dcCls = objc_getClass("DCDevice");
+                }
+                if (dcCls) {
+                    Method mSupp = class_getClassMethod(dcCls, @selector(isSupported));
+                    if (mSupp) method_setImplementation(mSupp, (IMP)swizzled_DCDevice_isSupported);
+                    Method mTok = class_getInstanceMethod(dcCls, @selector(generateTokenWithCompletionHandler:));
+                    if (mTok) {
+                        orig_DCDevice_generateToken = (void (*)(id, SEL, void (^)(NSData *, NSError *)))method_getImplementation(mTok);
+                        method_setImplementation(mTok, (IMP)swizzled_DCDevice_generateToken);
+                    }
+                }
+                Class attCls = objc_getClass("DCAppAttestService");
+                if (attCls) {
+                    Method mAttSupp = class_getInstanceMethod(attCls, @selector(isSupported));
+                    if (mAttSupp) method_setImplementation(mAttSupp, (IMP)swizzled_DCAppAttest_isSupported);
+                }
+            } @catch (NSException *e) {}
+
+            // In Zalo, filter clipboard queries to prevent proxy / tweak string spying
+            if (isZalo) {
+                @try {
+                    Class pbCls = objc_getClass("UIPasteboard");
+                    if (pbCls) {
+                        Method mStr = class_getInstanceMethod(pbCls, @selector(string));
+                        if (mStr) {
+                            orig_pasteboard_string = (void *)method_getImplementation(mStr);
+                            method_setImplementation(mStr, (IMP)swizzled_pasteboard_string);
+                        }
+                    }
+                } @catch (NSException *e) {}
+            }
+        } @catch (NSException *e) {}
+
+        // Observe UIApplicationDidFinishLaunchingNotification to confirm app reached UI loop & re-assert signal handlers
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                          object:nil
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification * _Nonnull note) {
+            
+            ZTechInstallSignalHandlers();
+            ZTechHookTrace("[6/6] UIApplicationDidFinishLaunchingNotification reached OK!");
+        }];
+
+        ZTechHookTrace("[5/6] ZTechHookInit completed 100% OK");
+    }
+}
+

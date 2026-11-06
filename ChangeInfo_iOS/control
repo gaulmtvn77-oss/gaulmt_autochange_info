@@ -1,0 +1,12 @@
+Package: com.ztech.changeinfo
+Name: change info
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: change info - Elite Device Identity & Hardware Spoofing (1:1 Replica Edition)
+Maintainer: quang lam marketing
+Author: quang lam marketing
+Section: Utilities
+Depends: firmware (>= 12.0), mobilesubstrate
+Icon: https://gaulmt.github.io/CydiaIcon@3x.png
+Depiction: https://gaulmt.github.io/depictions/com.ztech.changeinfo.json
+SileoDepiction: https://gaulmt.github.io/depictions/com.ztech.changeinfo.json
