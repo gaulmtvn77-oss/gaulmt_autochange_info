@@ -1595,7 +1595,7 @@ static const char *(*orig_dyld_get_image_name)(uint32_t image_index) = NULL;
 static const char *hooked_dyld_get_image_name(uint32_t image_index) {
     const char *name = orig_dyld_get_image_name ? orig_dyld_get_image_name(image_index) : NULL;
     if (name != NULL) {
-        if (strstr(name, "ZTech") || strstr(name, "ellekit") || strstr(name, "substrate") || strstr(name, "substitute") || strstr(name, "/var/jb")) {
+        if (strstr(name, "ChangeInfo") || strstr(name, "ZTech") || strstr(name, "ellekit") || strstr(name, "substrate") || strstr(name, "substitute") || strstr(name, "/var/jb")) {
             return "/System/Library/Frameworks/Foundation.framework/Foundation";
         }
     }
@@ -2123,6 +2123,84 @@ static id swizzled_ubiquitousDefaultStore(id self, SEL _cmd) {
 
 #pragma mark - Constructor
 
+#pragma mark - In-Process Zalo Keychain Clean & Anti-Fingerprint
+
+static dispatch_once_t sKeychainSyncOnceToken = 0;
+static void ChangeInfoPerformKeychainPurgeIfNeeded(void) {
+    dispatch_once(&sKeychainSyncOnceToken, ^{
+        @try {
+            const char *homeC = getenv("HOME");
+            if (!homeC || homeC[0] == ' ') return;
+            NSString *home = [NSString stringWithUTF8String:homeC];
+            if (home.length == 0) return;
+
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *docsDir = [home stringByAppendingPathComponent:@"Documents"];
+            NSString *boundUuidFile = [docsDir stringByAppendingPathComponent:@"_ci_bound_uuid.txt"];
+            NSString *wipeFlag = [docsDir stringByAppendingPathComponent:@"_ci_wipe_keychain.flag"];
+
+            NSString *currentSig = [NSString stringWithFormat:@"%@:%@", gUuidObj ?: @"", gMachineIdObj ?: @""];
+            NSString *boundSig = [[NSString stringWithContentsOfFile:boundUuidFile encoding:NSUTF8StringEncoding error:nil]
+                                  stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            BOOL hasWipeFlag = [fm fileExistsAtPath:wipeFlag];
+            BOOL sigMatches = (boundSig && currentSig && ([boundSig isEqualToString:currentSig] || (gUuidObj.length > 10 && [boundSig hasPrefix:gUuidObj])));
+
+            if (hasWipeFlag || !sigMatches) {
+                if (currentSig.length > 1) {
+                    [currentSig writeToFile:boundUuidFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                    chmod([boundUuidFile UTF8String], 0666);
+                }
+                if (hasWipeFlag) {
+                    [fm removeItemAtPath:wipeFlag error:nil];
+                }
+
+                // Purge all Zalo & Target Keychain items across all access groups & all classes
+                NSArray *secClasses = @[
+                    (__bridge id)kSecClassGenericPassword,
+                    (__bridge id)kSecClassInternetPassword,
+                    (__bridge id)kSecClassCertificate,
+                    (__bridge id)kSecClassKey,
+                    (__bridge id)kSecClassIdentity
+                ];
+                NSArray *accessGroups = @[
+                    @"",
+                    @"group.vn.com.vng.zingalo",
+                    @"group.zgroups.vn.com.vng.zingalo",
+                    @"group.zcontacts.vn.com.vng.zingalo",
+                    @"group.zfriends.vn.com.vng.zingalo",
+                    @"group.noti.vn.com.vng.zingalo",
+                    @"group.zsettings.vn.com.vng.zingalo"
+                ];
+
+                for (NSString *agrp in accessGroups) {
+                    for (id secClass in secClasses) {
+                        @try {
+                            NSMutableDictionary *q = [NSMutableDictionary dictionary];
+                            q[(__bridge id)kSecClass] = secClass;
+                            if (agrp.length > 0) {
+                                q[(__bridge id)kSecAttrAccessGroup] = agrp;
+                            }
+                            SecItemDelete((__bridge CFDictionaryRef)q);
+
+                            q[(__bridge id)kSecAttrSynchronizable] = (__bridge id)kSecAttrSynchronizableAny;
+                            SecItemDelete((__bridge CFDictionaryRef)q);
+                        } @catch (NSException *e) {}
+                    }
+                }
+            } else if (!sigMatches && currentSig.length > 1) {
+                [currentSig writeToFile:boundUuidFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                chmod([boundUuidFile UTF8String], 0666);
+            }
+        } @catch (NSException *e) {}
+    });
+}
+
+static OSStatus (*orig_SecItemCopyMatching)(CFDictionaryRef query, CFTypeRef *result) = NULL;
+static OSStatus hook_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
+    ChangeInfoPerformKeychainPurgeIfNeeded();
+    return orig_SecItemCopyMatching ? orig_SecItemCopyMatching(query, result) : errSecParam;
+}
+
 __attribute__((constructor))
 static void ChangeInfoHookInit(void) {
     if (dlsym(RTLD_DEFAULT, "gZTechHookActiveFlag") != NULL) {
@@ -2135,6 +2213,18 @@ static void ChangeInfoHookInit(void) {
         NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
 
         if ([bundleId isEqualToString:@"com.apple.springboard"]) {
+            // SpringBoard In-Process Respring Receiver
+            static int tokenRespring = 0;
+            notify_register_dispatch("com.ztech.changeinfo.respring", &tokenRespring, dispatch_get_main_queue(), ^(int token) {
+                exit(0);
+            });
+            notify_register_dispatch("com.ztech.respring", &tokenRespring, dispatch_get_main_queue(), ^(int token) {
+                exit(0);
+            });
+            notify_register_dispatch("com.gaulmt.respring", &tokenRespring, dispatch_get_main_queue(), ^(int token) {
+                exit(0);
+            });
+
             static int tokenOn = 0;
             notify_register_dispatch("com.ztech.airplaneModeOn", &tokenOn, dispatch_get_main_queue(), ^(int token) {
                 @try {
@@ -2462,6 +2552,9 @@ static void ChangeInfoHookInit(void) {
 
             void *raw_getenv = dlsym(RTLD_DEFAULT, "getenv");
             if (raw_getenv) pMSHook(raw_getenv, (void *)hooked_getenv, (void **)&orig_getenv);
+
+            void *raw_SecItemCopyMatching = dlsym(RTLD_DEFAULT, "SecItemCopyMatching");
+            if (raw_SecItemCopyMatching) pMSHook(raw_SecItemCopyMatching, (void *)hook_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching);
 
             void *raw_sysctlbyname = dlsym(RTLD_DEFAULT, "sysctlbyname");
             void *raw_sysctl = dlsym(RTLD_DEFAULT, "sysctl");

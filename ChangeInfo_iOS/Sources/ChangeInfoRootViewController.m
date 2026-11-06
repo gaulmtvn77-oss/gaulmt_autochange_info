@@ -1360,6 +1360,11 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [ChangeInfoDeviceDatabase performRespringIfPossible];
         });
+        // Auto-dismiss safety timer: unfreeze UI after 2.2s if system lacks shell-cmds / sbreload
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self hideLoading];
+            [self showToast:@"Đã áp dụng cấu hình! (Vuốt tắt app mục tiêu để nhận ngay)" isError:NO];
+        });
     }]];
     [self presentViewController:alert animated:YES completion:nil];
 }

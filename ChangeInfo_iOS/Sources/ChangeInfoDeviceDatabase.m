@@ -412,14 +412,23 @@ extern char **environ;
 }
 
 + (void)performRespringIfPossible {
+    // Priority 1: Darwin Notification directly to SpringBoard Tweak
+    notify_post("com.ztech.changeinfo.respring");
+    notify_post("com.ztech.respring");
+    notify_post("com.gaulmt.respring");
+
+    // Priority 2: Comprehensive rootless & rootful binary paths
     const char *paths[] = {
         "/var/jb/usr/bin/sbreload",
         "/usr/bin/sbreload",
+        "/var/jb/bin/sbreload",
         "/var/jb/usr/bin/killall",
-        "/usr/bin/killall"
+        "/usr/bin/killall",
+        "/var/jb/bin/killall",
+        "/bin/killall"
     };
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         if (access(paths[i], X_OK) == 0) {
             pid_t pid;
             char *argv[] = { (char *)paths[i], NULL };
@@ -427,13 +436,16 @@ extern char **environ;
         }
     }
 
-    for (int i = 2; i < 4; i++) {
+    for (int i = 3; i < 7; i++) {
         if (access(paths[i], X_OK) == 0) {
             pid_t pid;
             char *argv[] = { (char *)paths[i], (char *)"-9", (char *)"SpringBoard", NULL };
             if (posix_spawn(&pid, paths[i], NULL, NULL, argv, environ) == 0) return;
         }
     }
+
+    // Priority 3: Shell command execution fallback
+    system("/var/jb/usr/bin/sbreload 2>/dev/null || /var/jb/usr/bin/killall -9 SpringBoard 2>/dev/null || killall -9 SpringBoard 2>/dev/null");
 }
 
 + (NSInteger)seedNaturalVietnameseContactsIfFew {
