@@ -319,6 +319,10 @@ jobs:
           elif [ -f "ZTech_iOS/build_rootful.log" ]; then
             cat ZTech_iOS/build_rootful.log >> ci_debug.log
           fi
+          echo "=== CHANGE INFO BUILD LOG ===" >> ci_debug.log
+          if [ -f "ChangeInfo_iOS/build_changeinfo.log" ]; then
+            cat ChangeInfo_iOS/build_changeinfo.log >> ci_debug.log
+          fi
           echo "=== NOWEVENT BUILD LOG ===" >> ci_debug.log
           if [ -f "NowEvent_iOS/build_nen.log" ]; then
             cat NowEvent_iOS/build_nen.log >> ci_debug.log
