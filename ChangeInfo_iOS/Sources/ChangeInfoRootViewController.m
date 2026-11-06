@@ -240,6 +240,14 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
                                              selector:@selector(onAppBecameActive)
                                                  name:UIApplicationDidBecomeActiveNotification
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(keyboardWillShow:)
+                                                 name:UIKeyboardWillShowNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(keyboardWillHide:)
+                                                 name:UIKeyboardWillHideNotification
+                                               object:nil];
     [self onAppBecameActive];
 }
 
@@ -520,7 +528,12 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
     self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     self.scrollView.alwaysBounceVertical = YES;
     self.scrollView.showsVerticalScrollIndicator = NO;
+    self.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.view addSubview:self.scrollView];
+
+    UITapGestureRecognizer *dismissTap = [[UITapGestureRecognizer alloc] initWithTarget:self.view action:@selector(endEditing:)];
+    dismissTap.cancelsTouchesInView = NO;
+    [self.view addGestureRecognizer:dismissTap];
 
     [NSLayoutConstraint activateConstraints:@[
         [self.scrollView.topAnchor constraintEqualToAnchor:tabBarWrap.bottomAnchor constant:10.0],
@@ -1144,9 +1157,30 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
     self.licenseKeyField.font = [UIFont monospacedSystemFontOfSize:13.5 weight:UIFontWeightBold];
     self.licenseKeyField.autocorrectionType = UITextAutocorrectionTypeNo;
     self.licenseKeyField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    self.licenseKeyField.returnKeyType = UIReturnKeyDone;
+    self.licenseKeyField.delegate = self;
     self.licenseKeyField.placeholder = @"GT-VIP-XXXX-XXXX";
     self.licenseKeyField.text = [ChangeInfoLicenseManager savedLicenseKey] ?: @"";
     [self.licenseKeyField.heightAnchor constraintEqualToConstant:42.0].active = YES;
+
+    UIToolbar *kbToolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, [UIScreen mainScreen].bounds.size.width, 44)];
+    kbToolbar.barStyle = self.isLightMode ? UIBarStyleDefault : UIBarStyleBlack;
+    kbToolbar.translucent = YES;
+    kbToolbar.tintColor = [self goldAccentColor];
+    UIBarButtonItem *btnDone = [[UIBarButtonItem alloc] initWithTitle:@"Đóng phím"
+                                                                style:UIBarButtonItemStylePlain
+                                                               target:self.view
+                                                               action:@selector(endEditing:)];
+    UIBarButtonItem *spacer = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
+                                                                            target:nil
+                                                                            action:nil];
+    UIBarButtonItem *btnSubmitKey = [[UIBarButtonItem alloc] initWithTitle:@"✓ KÍCH HOẠT NGAY"
+                                                                     style:UIBarButtonItemStyleDone
+                                                                    target:self
+                                                                    action:@selector(onTapSubmitLicenseKey)];
+    kbToolbar.items = @[btnDone, spacer, btnSubmitKey];
+    self.licenseKeyField.inputAccessoryView = kbToolbar;
+
     [inRow addArrangedSubview:self.licenseKeyField];
 
     UIButton *btnPaste = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -1534,6 +1568,35 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
     [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
         btn.transform = CGAffineTransformIdentity;
     } completion:nil];
+}
+
+#pragma mark - Keyboard Handling & TextField Delegate
+
+- (void)keyboardWillShow:(NSNotification *)notification {
+    NSDictionary *info = [notification userInfo];
+    CGSize kbSize = [[info objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue].size;
+    UIEdgeInsets insets = UIEdgeInsetsMake(0, 0, kbSize.height + 40.0, 0);
+    self.scrollView.contentInset = insets;
+    self.scrollView.scrollIndicatorInsets = insets;
+
+    if (self.licenseKeyField && self.licenseKeyField.isFirstResponder) {
+        CGRect r = [self.contentStack convertRect:self.licenseKeyField.frame fromView:self.licenseKeyField.superview];
+        [self.scrollView scrollRectToVisible:CGRectInset(r, 0, -80.0) animated:YES];
+    }
+}
+
+- (void)keyboardWillHide:(NSNotification *)notification {
+    UIEdgeInsets insets = UIEdgeInsetsZero;
+    self.scrollView.contentInset = insets;
+    self.scrollView.scrollIndicatorInsets = insets;
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [self.view endEditing:YES];
+    if (textField == self.licenseKeyField) {
+        [self onTapSubmitLicenseKey];
+    }
+    return YES;
 }
 
 @end
