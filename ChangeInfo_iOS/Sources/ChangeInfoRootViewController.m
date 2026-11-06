@@ -927,18 +927,26 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 
     NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
 
+    UISwitch *sw1 = nil;
     UIView *row1 = [self createToggleRowWithTitle:@"Khóa Model Máy Thật"
                                          subtitle:@"Chỉ đổi Serial, UUID, MAC. Giữ nguyên đời máy thật"
-                                           prefKey:@"ChangeInfo_LockModel"
-                                        outSwitch:&_lockModelSwitch];
+                                          prefKey:@"ChangeInfo_LockModel"
+                                        outSwitch:&sw1];
+    _lockModelSwitch = sw1;
+
+    UISwitch *sw2 = nil;
     UIView *row2 = [self createToggleRowWithTitle:@"Trùng Cỡ Màn Hình Thật"
                                          subtitle:@"Chỉ random các máy có cùng tỷ lệ hiển thị màn hình"
-                                           prefKey:@"ChangeInfo_SameScreen"
-                                        outSwitch:&_sameScreenSwitch];
+                                          prefKey:@"ChangeInfo_SameScreen"
+                                        outSwitch:&sw2];
+    _sameScreenSwitch = sw2;
+
+    UISwitch *sw3 = nil;
     UIView *row3 = [self createToggleRowWithTitle:@"Trùng Dung Lượng RAM & Chip"
                                          subtitle:@"Chỉ random các máy có cùng dung lượng bộ nhớ RAM"
-                                           prefKey:@"ChangeInfo_MatchChip"
-                                        outSwitch:&_matchChipSwitch];
+                                          prefKey:@"ChangeInfo_MatchChip"
+                                        outSwitch:&sw3];
+    _matchChipSwitch = sw3;
 
     [st addArrangedSubview:row1];
     [st addArrangedSubview:row2];
@@ -948,7 +956,7 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 - (UIView *)createToggleRowWithTitle:(NSString *)title
                             subtitle:(NSString *)subtitle
                              prefKey:(NSString *)prefKey
-                           outSwitch:(UISwitch **)outSwitch {
+                           outSwitch:(UISwitch * __strong *)outSwitch {
     UIView *row = [[UIView alloc] init];
 
     UIStackView *leftSt = [[UIStackView alloc] init];
