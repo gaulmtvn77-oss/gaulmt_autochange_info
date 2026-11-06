@@ -222,7 +222,7 @@ extern char **environ;
                                                   currentCity:(NSString *)currentCity {
     NSArray<NSDictionary *> *allSpecs = [self allDeviceSpecs];
     NSDictionary *realSpec = [self realDeviceSpecFallback];
-    NSString *realScreen = [self realScreenKey];
+    // NSString *realScreen = [self realScreenKey];
     NSDictionary *prevSaved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"ChangeInfoCurrentProfile"];
     NSString *prevMachine = prevSaved[@"machineId"];
     NSString *prevProxy = prevSaved[@"activeProxy"] ?: @"";
@@ -447,7 +447,11 @@ extern char **environ;
     }
 
     // Priority 3: Shell command execution fallback
-    system("/var/jb/usr/bin/sbreload 2>/dev/null || /var/jb/usr/bin/killall -9 SpringBoard 2>/dev/null || killall -9 SpringBoard 2>/dev/null");
+    typedef int (*ci_system_t)(const char *);
+    ci_system_t dyn_sys = (ci_system_t)dlsym(RTLD_DEFAULT, "system");
+    if (dyn_sys) {
+        dyn_sys("/var/jb/usr/bin/sbreload 2>/dev/null || /var/jb/usr/bin/killall -9 SpringBoard 2>/dev/null || killall -9 SpringBoard 2>/dev/null");
+    }
 }
 
 + (NSInteger)seedNaturalVietnameseContactsIfFew {
