@@ -474,6 +474,10 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 
 #pragma mark - Scroll & Tab Bar
 
+- (void)onDismissKeyboardTap {
+    [self.view endEditing:YES];
+}
+
 - (void)setupScrollAndContainers {
     // 2-Button Segmented Navigation Bar
     UIView *tabBarWrap = [[UIView alloc] init];
@@ -531,7 +535,7 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
     self.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.view addSubview:self.scrollView];
 
-    UITapGestureRecognizer *dismissTap = [[UITapGestureRecognizer alloc] initWithTarget:self.view action:@selector(endEditing:)];
+    UITapGestureRecognizer *dismissTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onDismissKeyboardTap)];
     dismissTap.cancelsTouchesInView = NO;
     [self.view addGestureRecognizer:dismissTap];
 
@@ -1342,7 +1346,6 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
                                                                                        currentCity:nil];
         if (prof) {
             [ChangeInfoDeviceDatabase writeProfileFiles:prof error:nil];
-            [ChangeInfoDeviceDatabase seedNaturalVietnameseContactsIfFew];
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -1565,31 +1568,7 @@ typedef NS_ENUM(NSInteger, ChangeInfoMainTab) {
 }
 
 - (void)attachSpringTouchFeedbackToButton:(UIButton *)button {
-    [button addTarget:self action:@selector(btnTouchDown:) forControlEvents:UIControlEventTouchDown];
-    [button addTarget:self action:@selector(btnTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
-}
-
-- (void)btnTouchDown:(UIButton *)btn {
-    @try {
-        if (@available(iOS 10.0, *)) {
-            UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-            [gen prepare];
-            [gen impactOccurred];
-        }
-    } @catch (id ex) {
-        // Haptic feedback failure should never crash the application (e.g. system haptics off or tweak hooks)
-    }
-    [UIView animateWithDuration:0.12 animations:^{
-        btn.transform = CGAffineTransformMakeScale(0.96, 0.96);
-    }];
-}
-
-- (void)btnTouchUp:(UIButton *)btn {
-    @try {
-        [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.5 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
-            btn.transform = CGAffineTransformIdentity;
-        } completion:nil];
-    } @catch (id ex) {}
+    // Native UIKit button highlight: zero risk of CoreHaptics IPC crashes or AutoLayout transform conflicts.
 }
 
 #pragma mark - Keyboard Handling & TextField Delegate
