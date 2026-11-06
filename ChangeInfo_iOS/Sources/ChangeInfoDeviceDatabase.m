@@ -37,53 +37,30 @@ extern char **environ;
                              sameScreen:(BOOL)sameScreen
                               matchChip:(BOOL)matchChip {
     NSMutableString *s = [NSMutableString string];
-    [s appendString:@"========================================================
-"];
-    [s appendString:@"        CHANGE INFO - BÁO CÁO CẤU HÌNH THIẾT BỊ
-"];
-    [s appendString:@"========================================================
-
-"];
-    [s appendFormat:@"• Thiết Bị:        %@ (%@)
-", self.modelName, self.machineId];
-    [s appendFormat:@"• Phiên Bản iOS:   iOS %@
-", self.iosVersion];
-    [s appendFormat:@"• Vi Xử Lý (SoC):  %@ (%ld GB RAM)
-", self.chipName, (long)self.ramGB];
-    [s appendFormat:@"• Độ Phân Giải:    %@ px
-", self.screenKey];
-    [s appendFormat:@"• Mã Định Danh:    %@
-", self.identifier];
-    [s appendFormat:@"• Mạng / Nhà Mạng: %@
-", self.carrier];
-    [s appendFormat:@"• Điểm WiFi:       %@
-", self.wifiSsid];
-    [s appendFormat:@"• Vị Trí / Tỉnh:   %@
-", self.city];
-    [s appendFormat:@"• Mức Pin Hiện Tại: %ld%%
-", (long)self.batteryPercent];
-    [s appendFormat:@"• Số Danh Bạ:      %ld liên hệ
-", (long)self.contactsCount];
+    [s appendString:@"========================================================\n"];
+    [s appendString:@"        CHANGE INFO - BÁO CÁO CẤU HÌNH THIẾT BỊ\n"];
+    [s appendString:@"========================================================\n\n"];
+    [s appendFormat:@"• Thiết Bị:        %@ (%@)\n", self.modelName, self.machineId];
+    [s appendFormat:@"• Phiên Bản iOS:   iOS %@\n", self.iosVersion];
+    [s appendFormat:@"• Vi Xử Lý (SoC):  %@ (%ld GB RAM)\n", self.chipName, (long)self.ramGB];
+    [s appendFormat:@"• Độ Phân Giải:    %@ px\n", self.screenKey];
+    [s appendFormat:@"• Mã Định Danh:    %@\n", self.identifier];
+    [s appendFormat:@"• Mạng / Nhà Mạng: %@\n", self.carrier];
+    [s appendFormat:@"• Điểm WiFi:       %@\n", self.wifiSsid];
+    [s appendFormat:@"• Vị Trí / Tỉnh:   %@\n", self.city];
+    [s appendFormat:@"• Mức Pin Hiện Tại: %ld%%\n", (long)self.batteryPercent];
+    [s appendFormat:@"• Số Danh Bạ:      %ld liên hệ\n", (long)self.contactsCount];
     if (self.activeProxy.length > 0) {
-        [s appendFormat:@"• Proxy Hoạt Động: %@
-", self.activeProxy];
+        [s appendFormat:@"• Proxy Hoạt Động: %@\n", self.activeProxy];
     } else {
-        [s appendString:@"• Mạng:            Trực tiếp (Không Proxy)
-"];
+        [s appendString:@"• Mạng:            Trực tiếp (Không Proxy)\n"];
     }
-    [s appendString:@"
------------------- TUỲ CHỌN KHÓA -------------------
-"];
-    [s appendFormat:@"• Khóa Máy Thật:   %@
-", lockModel ? @"BẬT (Khớp 100%)" : @"TẮT (Random)"];
-    [s appendFormat:@"• Trùng Màn Hình:  %@
-", sameScreen ? @"BẬT" : @"TẮT"];
-    [s appendFormat:@"• Trùng Chip/RAM:  %@
-", matchChip ? @"BẬT" : @"TẮT"];
-    [s appendFormat:@"• Tự Động Respring:%@
-", respring ? @"BẬT" : @"TẮT"];
-    [s appendString:@"========================================================
-"];
+    [s appendString:@"\n------------------ TUỲ CHỌN KHÓA -------------------\n"];
+    [s appendFormat:@"• Khóa Máy Thật:   %@\n", lockModel ? @"BẬT (Khớp 100%)" : @"TẮT (Random)"];
+    [s appendFormat:@"• Trùng Màn Hình:  %@\n", sameScreen ? @"BẬT" : @"TẮT"];
+    [s appendFormat:@"• Trùng Chip/RAM:  %@\n", matchChip ? @"BẬT" : @"TẮT"];
+    [s appendFormat:@"• Tự Động Respring:%@\n", respring ? @"BẬT" : @"TẮT"];
+    [s appendString:@"========================================================\n"];
     return s;
 }
 
